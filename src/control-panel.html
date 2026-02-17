@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>Grandicast</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+          sans-serif;
+        background: #0f0f1a;
+        color: #d4d4d8;
+        min-height: 100vh;
+        overflow-y: auto;
+      }
+
+      /* ── Header ───────────────────────────────────────────────────────────── */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: #16213e;
+        padding: 12px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #1f2e4d;
+        -webkit-app-region: drag;
+      }
+      header h1 {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      header h1 .accent {
+        color: #4ecca3;
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        -webkit-app-region: no-drag;
+      }
+      .ndi-badge {
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 10px;
+        font-weight: 600;
+      }
+      .ndi-badge.ok {
+        background: #14532d;
+        color: #86efac;
+      }
+      .ndi-badge.fail {
+        background: #7f1d1d;
+        color: #fca5a5;
+      }
+      .add-btn {
+        background: #4ecca3;
+        color: #0f0f1a;
+        border: none;
+        padding: 7px 18px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 13px;
+        transition: background 0.15s;
+      }
+      .add-btn:hover {
+        background: #3db892;
+      }
+
+      /* ── Container ────────────────────────────────────────────────────────── */
+      #container {
+        padding: 20px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* ── Empty state ──────────────────────────────────────────────────────── */
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #52525b;
+      }
+      .empty-state .icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+      .empty-state p {
+        line-height: 1.6;
+      }
+
+      /* ── Card ─────────────────────────────────────────────────────────────── */
+      .card {
+        background: #1a1a2e;
+        border: 1px solid #1f2e4d;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 16px;
+        background: #16213e;
+        border-bottom: 1px solid #1f2e4d;
+      }
+      .card-head .label {
+        font-weight: 600;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card-head .badge {
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      .badge-idle {
+        background: #27272a;
+        color: #a1a1aa;
+      }
+      .badge-running {
+        background: #14532d;
+        color: #86efac;
+      }
+      .badge-ndi {
+        background: #7f1d1d;
+        color: #fca5a5;
+      }
+      .remove-btn {
+        background: none;
+        border: none;
+        color: #71717a;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition:
+          color 0.15s,
+          background 0.15s;
+      }
+      .remove-btn:hover {
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+      }
+
+      /* ── Card body grid ───────────────────────────────────────────────────── */
+      .card-body {
+        padding: 14px 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 16px;
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+
+      .fg {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .fg label {
+        font-size: 10px;
+        text-transform: uppercase;
+        color: #71717a;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .fg input[type="text"],
+      .fg input[type="number"],
+      .fg input[type="url"],
+      .fg select {
+        background: #0f0f1a;
+        border: 1px solid #27272a;
+        color: #e4e4e7;
+        padding: 7px 10px;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: inherit;
+        transition: border-color 0.15s;
+        width: 100%;
+      }
+      .fg input:focus,
+      .fg select:focus {
+        outline: none;
+        border-color: #4ecca3;
+      }
+      .fg select option {
+        background: #0f0f1a;
+        color: #e4e4e7;
+      }
+
+      .size-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .size-row input {
+        width: 90px;
+      }
+      .size-row .sep {
+        color: #52525b;
+        font-size: 13px;
+      }
+
+      /* ── Toggle switch ────────────────────────────────────────────────────── */
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-top: 4px;
+      }
+      .toggle {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      .toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        background: #27272a;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .toggle-track::after {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        top: 2px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.2s;
+      }
+      .toggle input:checked + .toggle-track {
+        background: #4ecca3;
+      }
+      .toggle input:checked + .toggle-track::after {
+        transform: translateX(16px);
+      }
+
+      /* ── Section divider ──────────────────────────────────────────────────── */
+      .section {
+        grid-column: 1 / -1;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #4ecca3;
+        font-weight: 700;
+        border-top: 1px solid #1f2e4d;
+        padding-top: 10px;
+        margin-top: 2px;
+      }
+
+      /* ── Action buttons ───────────────────────────────────────────────────── */
+      .card-actions {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+        padding-top: 10px;
+        border-top: 1px solid #1f2e4d;
+        flex-wrap: wrap;
+      }
+      .btn {
+        padding: 7px 16px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        transition: filter 0.15s;
+      }
+      .btn:hover {
+        filter: brightness(1.15);
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        filter: none;
+      }
+      .btn-start {
+        background: #14532d;
+        color: #86efac;
+      }
+      .btn-reload {
+        background: #1e3a5f;
+        color: #93c5fd;
+      }
+      .btn-stop {
+        background: #7f1d1d;
+        color: #fca5a5;
+      }
+      .btn-ndi {
+        background: #581c87;
+        color: #d8b4fe;
+        margin-left: auto;
+      }
+      .btn-ndi.active {
+        background: #b91c1c;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Electron<span class="accent">NDI</span></h1>
+      <div class="header-right">
+        <span class="ndi-badge" id="ndi-badge">…</span>
+        <button class="add-btn" id="add-btn">+ Add Window</button>
+      </div>
+    </header>
+
+    <div id="container">
+      <div class="empty-state" id="empty">
+        <div class="icon">🖥️</div>
+        <p>No browser windows yet.<br />Click <b>+ Add Window</b> to begin.</p>
+      </div>
+    </div>
+
+    <script>
+      // ── State ────────────────────────────────────────────────────────────────────
+      const api = window.grandicast;
+      const cards = new Map(); // panelId → { windowId, ndiActive }
+      let nextPanel = 1;
+
+      const container = document.getElementById("container");
+      const emptyEl = document.getElementById("empty");
+
+      // ── Add-window button ──────────────────────────────────────────────────────
+      const addBtnEl = document.getElementById("add-btn");
+      if (addBtnEl) {
+        addBtnEl.addEventListener("click", () => {
+          addCard();
+          persistSettings();
+        });
+      }
+
+      // ── NDI availability check ───────────────────────────────────────────────────
+      if (api) {
+        (async () => {
+          const badge = document.getElementById("ndi-badge");
+          try {
+            const info = await api.checkNdi();
+            if (info.available) {
+              badge.textContent = `NDI ${info.version ? info.version.split(" ").pop() : "✓"}`;
+              badge.className = "ndi-badge ok";
+            } else {
+              badge.textContent = "NDI unavailable";
+              badge.className = "ndi-badge fail";
+              badge.title = info.error || "";
+            }
+          } catch (e) {
+            console.error("NDI check failed:", e);
+            badge.textContent = "NDI unavailable";
+            badge.className = "ndi-badge fail";
+          }
+        })();
+
+        // ── Listen for external window closes ──────────────────────────────────────
+        api.onWindowClosed((windowId) => {
+          for (const [pid, c] of cards) {
+            if (c.windowId === windowId) {
+              c.windowId = null;
+              c.ndiActive = false;
+              refreshCard(pid);
+              break;
+            }
+          }
+        });
+      } else {
+        console.error(
+          "window.grandicast not available – preload may have failed",
+        );
+        const badge = document.getElementById("ndi-badge");
+        badge.textContent = "API unavailable";
+        badge.className = "ndi-badge fail";
+      }
+
+      function addCard(preset) {
+        const pid = nextPanel++;
+        cards.set(pid, { windowId: null, ndiActive: false });
+
+        const p = preset || {};
+        // Backward compat: old settings had audioEnabled boolean
+        if (!p.audioPreset && p.audioEnabled) p.audioPreset = "balanced";
+
+        const card = document.createElement("div");
+        card.className = "card";
+        card.id = `card-${pid}`;
+        card.innerHTML = `
+    <div class="card-head">
+      <span class="label">
+        Window ${pid}
+        <span class="badge badge-idle" id="badge-${pid}">IDLE</span>
+      </span>
+      <button class="remove-btn" title="Remove">&times;</button>
+    </div>
+    <div class="card-body">
+      <!-- URL -->
+      <div class="fg full">
+        <label>URL</label>
+        <input type="url" id="url-${pid}" value="${esc(p.url || "")}" placeholder="https://example.com">
+      </div>
+
+      <!-- Size -->
+      <div class="fg">
+        <label>Resolution</label>
+        <div class="size-row">
+          <input type="number" id="w-${pid}" value="${p.width || 1280}" min="100" max="7680">
+          <span class="sep">×</span>
+          <input type="number" id="h-${pid}" value="${p.height || 720}" min="100" max="4320">
+        </div>
+      </div>
+
+      <!-- Transparent -->
+      <div class="fg">
+        <label>Background</label>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="tp-${pid}" ${p.transparent ? "checked" : ""}>
+            <span class="toggle-track"></span>
+          </label>
+          <span>Transparent</span>
+        </div>
+      </div>
+
+      <!-- Frameless -->
+      <div class="fg">
+        <label>Window Frame</label>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="frameless-${pid}" ${p.frameless ? "checked" : ""}>
+            <span class="toggle-track"></span>
+          </label>
+          <span>Frameless</span>
+        </div>
+      </div>
+
+      <!-- Hidden -->
+      <div class="fg">
+        <label>Visibility</label>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="hidden-${pid}" ${p.hidden ? "checked" : ""}>
+            <span class="toggle-track"></span>
+          </label>
+          <span>Hidden (NDI only)</span>
+        </div>
+      </div>
+
+      <!-- NDI section -->
+      <div class="section">NDI Output</div>
+
+      <div class="fg">
+        <label>NDI Name</label>
+        <input type="text" id="ndi-${pid}" value="${esc(p.ndiName || "")}" placeholder="Grandicast-${pid}">
+      </div>
+      <div class="fg">
+        <label>FPS</label>
+        <input type="number" id="fps-${pid}" value="${p.fps || 30}" min="1" max="120">
+      </div>
+
+      <!-- Audio -->
+      <div class="fg">
+        <label>Audio</label>
+        <select id="audio-${pid}" class="audio-select">
+          <option value="off"     ${!p.audioPreset || p.audioPreset === "off" ? "selected" : ""}>Off</option>
+          <option value="low"     ${p.audioPreset === "low" ? "selected" : ""}>Low Latency (1024 buf / ~21 ms)</option>
+          <option value="balanced" ${p.audioPreset === "balanced" ? "selected" : ""}>Balanced (2048 buf / ~42 ms)</option>
+          <option value="high"    ${p.audioPreset === "high" ? "selected" : ""}>High Quality (4096 buf / ~85 ms)</option>
+          <option value="max"     ${p.audioPreset === "max" ? "selected" : ""}>Maximum (8192 buf / ~170 ms)</option>
+        </select>
+      </div>
+
+      <!-- Actions -->
+      <div class="card-actions">
+        <button class="btn btn-start"  id="btnStart-${pid}">▶ START</button>
+        <button class="btn btn-reload" id="btnReload-${pid}" disabled>↻ RELOAD</button>
+        <button class="btn btn-stop"   id="btnStop-${pid}" disabled>⏹ STOP</button>
+        <button class="btn btn-ndi"    id="btnNdi-${pid}" disabled>📡 Start NDI</button>
+      </div>
+    </div>
+  `;
+
+        // ── Card event handlers ──────────────────────────────────────────────────
+        // Append card to DOM first so getElementById can find children
+        container.appendChild(card);
+
+        card
+          .querySelector(".remove-btn")
+          .addEventListener("click", () => removeCard(pid));
+        $(`btnStart-${pid}`).addEventListener("click", () => startWindow(pid));
+        $(`btnReload-${pid}`).addEventListener("click", () =>
+          reloadWindow(pid),
+        );
+        $(`btnStop-${pid}`).addEventListener("click", () => stopWindow(pid));
+        $(`btnNdi-${pid}`).addEventListener("click", () => toggleNdi(pid));
+
+        // Auto-save on any input change (debounced)
+        let saveTimer;
+        const autoSave = () => {
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(() => persistSettings(), 500);
+        };
+
+        // Live-update size while window is running + auto-save
+        let sizeTimer;
+        const onSizeChange = () => {
+          clearTimeout(sizeTimer);
+          sizeTimer = setTimeout(() => {
+            const c = cards.get(pid);
+            if (!c || !c.windowId) return;
+            const width = int($(`w-${pid}`).value, 1280);
+            const height = int($(`h-${pid}`).value, 720);
+            api.updateWindow(c.windowId, { width, height });
+          }, 400);
+          autoSave();
+        };
+        $(`w-${pid}`).addEventListener("input", onSizeChange);
+        $(`h-${pid}`).addEventListener("input", onSizeChange);
+        $(`url-${pid}`).addEventListener("input", autoSave);
+        $(`ndi-${pid}`).addEventListener("input", autoSave);
+        $(`fps-${pid}`).addEventListener("input", autoSave);
+        $(`tp-${pid}`).addEventListener("change", autoSave);
+        $(`frameless-${pid}`).addEventListener("change", autoSave);
+        $(`hidden-${pid}`).addEventListener("change", autoSave);
+        $(`audio-${pid}`).addEventListener("change", autoSave);
+
+        toggleEmpty();
+      }
+
+      // ── Actions ──────────────────────────────────────────────────────────────────
+      async function startWindow(pid) {
+        const c = cards.get(pid);
+        if (!c || c.windowId) return;
+
+        const url = $(`url-${pid}`).value.trim();
+        const width = int($(`w-${pid}`).value, 1280);
+        const height = int($(`h-${pid}`).value, 720);
+        const transparent = $(`tp-${pid}`).checked;
+        const frameless = $(`frameless-${pid}`).checked;
+        const hidden = $(`hidden-${pid}`).checked;
+
+        if (!url) {
+          $(`url-${pid}`).focus();
+          return;
+        }
+
+        try {
+          const wid = await api.createWindow({
+            url,
+            width,
+            height,
+            transparent,
+            frameless,
+            hidden,
+            title: `Grandicast – Window ${pid}`,
+          });
+          c.windowId = wid;
+          refreshCard(pid);
+        } catch (e) {
+          alert("Failed to create window:\n" + e.message);
+        }
+      }
+
+      async function reloadWindow(pid) {
+        const c = cards.get(pid);
+        if (!c || !c.windowId) return;
+
+        // Apply latest URL if changed
+        const url = $(`url-${pid}`).value.trim();
+        if (url) await api.updateWindow(c.windowId, { url });
+        await api.reloadWindow(c.windowId);
+      }
+
+      async function stopWindow(pid) {
+        const c = cards.get(pid);
+        if (!c || !c.windowId) return;
+
+        if (c.ndiActive) {
+          await api.stopNdi(c.windowId);
+          c.ndiActive = false;
+        }
+        await api.closeWindow(c.windowId);
+        c.windowId = null;
+        refreshCard(pid);
+      }
+
+      async function toggleNdi(pid) {
+        const c = cards.get(pid);
+        if (!c || !c.windowId) return;
+
+        if (c.ndiActive) {
+          await api.stopNdi(c.windowId);
+          c.ndiActive = false;
+        } else {
+          const ndiName = $(`ndi-${pid}`).value.trim() || `Grandicast-${pid}`;
+          const fps = int($(`fps-${pid}`).value, 30);
+          const audioPreset = $(`audio-${pid}`).value;
+          const audioEnabled = audioPreset !== "off";
+          const audioBufferMap = {
+            low: 1024,
+            balanced: 2048,
+            high: 4096,
+            max: 8192,
+          };
+          const audioBufferSize = audioBufferMap[audioPreset] || 2048;
+          const result = await api.startNdi(
+            c.windowId,
+            ndiName,
+            fps,
+            audioEnabled,
+            audioBufferSize,
+          );
+          if (result.success) {
+            c.ndiActive = true;
+          } else {
+            alert("NDI error:\n" + result.error);
+          }
+        }
+        refreshCard(pid);
+      }
+
+      async function removeCard(pid) {
+        const c = cards.get(pid);
+        if (c && c.windowId) {
+          if (c.ndiActive) await api.stopNdi(c.windowId);
+          await api.closeWindow(c.windowId);
+        }
+        cards.delete(pid);
+        const el = document.getElementById(`card-${pid}`);
+        if (el) el.remove();
+        toggleEmpty();
+        persistSettings();
+      }
+
+      // ── UI helpers ───────────────────────────────────────────────────────────────
+      function refreshCard(pid) {
+        const c = cards.get(pid);
+        if (!c) return;
+
+        const running = !!c.windowId;
+        const badge = $(`badge-${pid}`);
+        const btnNdi = $(`btnNdi-${pid}`);
+
+        // Badge
+        if (c.ndiActive) {
+          badge.textContent = "NDI LIVE";
+          badge.className = "badge badge-ndi";
+        } else if (running) {
+          badge.textContent = "RUNNING";
+          badge.className = "badge badge-running";
+        } else {
+          badge.textContent = "IDLE";
+          badge.className = "badge badge-idle";
+        }
+
+        // Buttons
+        $(`btnStart-${pid}`).disabled = running;
+        $(`btnReload-${pid}`).disabled = !running;
+        $(`btnStop-${pid}`).disabled = !running;
+        btnNdi.disabled = !running;
+
+        if (c.ndiActive) {
+          btnNdi.textContent = "⏹ Stop NDI";
+          btnNdi.classList.add("active");
+        } else {
+          btnNdi.textContent = "📡 Start NDI";
+          btnNdi.classList.remove("active");
+        }
+
+        // Disable toggles while running
+        $(`tp-${pid}`).disabled = running;
+        $(`frameless-${pid}`).disabled = running;
+        $(`hidden-${pid}`).disabled = running;
+        $(`audio-${pid}`).disabled = c.ndiActive;
+      }
+
+      function toggleEmpty() {
+        emptyEl.style.display = cards.size === 0 ? "" : "none";
+      }
+
+      function $(id) {
+        return document.getElementById(id);
+      }
+      function int(v, fallback) {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+      }
+      function esc(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      // ── Settings persistence ─────────────────────────────────────────────────────
+      function gatherSettings() {
+        const panels = [];
+        for (const [pid] of cards) {
+          panels.push({
+            url: $(`url-${pid}`) ? $(`url-${pid}`).value : "",
+            width: int($(`w-${pid}`) ? $(`w-${pid}`).value : 1280, 1280),
+            height: int($(`h-${pid}`) ? $(`h-${pid}`).value : 720, 720),
+            transparent: $(`tp-${pid}`) ? $(`tp-${pid}`).checked : false,
+            frameless: $(`frameless-${pid}`)
+              ? $(`frameless-${pid}`).checked
+              : false,
+            hidden: $(`hidden-${pid}`) ? $(`hidden-${pid}`).checked : false,
+            ndiName: $(`ndi-${pid}`) ? $(`ndi-${pid}`).value : "",
+            fps: int($(`fps-${pid}`) ? $(`fps-${pid}`).value : 30, 30),
+            audioPreset: $(`audio-${pid}`) ? $(`audio-${pid}`).value : "off",
+          });
+        }
+        return panels;
+      }
+
+      function persistSettings() {
+        if (api && api.saveSettings) {
+          api.saveSettings(gatherSettings());
+        }
+      }
+
+      // ── Restore saved settings on startup ────────────────────────────────────────
+      (async () => {
+        if (!api || !api.loadSettings) return;
+        try {
+          const saved = await api.loadSettings();
+          if (Array.isArray(saved) && saved.length > 0) {
+            for (const preset of saved) {
+              addCard(preset);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to restore settings:", e);
+        }
+      })();
+    </script>
+  </body>
+</html>
