@@ -145,6 +145,18 @@ ipcMain.handle("create-window", async (_ev, config) => {
     config: { ...config, width, height },
     ndiManager,
     ndiActive: false,
+    audioEnabled: false,
+    audioBufferSize: 4096,
+  });
+
+  // After any navigation / reload, re-start audio capture if NDI is active
+  win.webContents.on("did-finish-load", () => {
+    const d = browserWindows.get(id);
+    if (d && d.ndiActive && d.audioEnabled && !d.win.isDestroyed()) {
+      d.win.webContents.send("start-audio-capture", {
+        bufferSize: d.audioBufferSize,
+      });
+    }
   });
 
   win.on("closed", () => {
@@ -222,11 +234,13 @@ ipcMain.handle(
         !!audioEnabled,
       );
       data.ndiActive = true;
+      data.audioEnabled = !!audioEnabled;
+      data.audioBufferSize = audioBufferSize || 4096;
 
       // Tell the browser window renderer to start capturing tab audio
       if (audioEnabled && !data.win.isDestroyed()) {
         data.win.webContents.send("start-audio-capture", {
-          bufferSize: audioBufferSize || 2048,
+          bufferSize: data.audioBufferSize,
         });
       }
 

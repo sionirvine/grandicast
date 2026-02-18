@@ -32,6 +32,7 @@ class NdiManager {
     this._audioSampleRate = 48000;
     this._audioChannels = 2;
     this._audioLogDone = false;
+    this._audioDraining = false;
 
     /** @type {Array<{data: Buffer, noSamples: number}>} */
     this._audioQueue = [];
@@ -133,32 +134,48 @@ class NdiManager {
   }
 
   /**
-   * Push a real audio buffer captured from the renderer and send immediately.
+   * Queue a real audio buffer captured from the renderer for sending.
+   * Sends are serialised so they never overlap on the native sender.
    * @param {Buffer} planarBuf  Float32 planar PCM (ch0 then ch1)
    * @param {number} noSamples  Number of samples per channel
    */
   pushAudio(planarBuf, noSamples) {
     if (!this.running || !this.audioEnabled || !this.sender) return;
 
-    const ns = process.hrtime.bigint();
-    const timecode = ns / 100n;
-    const timestamp = [
-      Number(ns / 1_000_000_000n),
-      Number(ns % 1_000_000_000n),
-    ];
+    // Back-pressure: if the NDI sender can't keep up, drop the oldest chunk
+    // to prevent unbounded memory growth and accumulating latency.
+    if (this._audioQueue.length >= 8) {
+      this._audioQueue.shift();
+    }
 
-    this.sender
-      .audio({
-        sampleRate: this._audioSampleRate,
-        noChannels: this._audioChannels,
-        noSamples,
-        channelStrideBytes: noSamples * 4,
-        data: planarBuf,
-        fourCC: grandi.FourCC.FLTp,
-        timecode,
-        timestamp,
-      })
-      .then(() => {
+    this._audioQueue.push({ data: planarBuf, noSamples });
+    if (!this._audioDraining) this._drainAudioQueue();
+  }
+
+  /** @private Serialise audio sends so they never overlap. */
+  async _drainAudioQueue() {
+    this._audioDraining = true;
+    while (this._audioQueue.length > 0 && this.running && this.sender) {
+      const { data, noSamples } = this._audioQueue.shift();
+
+      const ns = process.hrtime.bigint();
+      const timecode = ns / 100n;
+      const timestamp = [
+        Number(ns / 1_000_000_000n),
+        Number(ns % 1_000_000_000n),
+      ];
+
+      try {
+        await this.sender.audio({
+          sampleRate: this._audioSampleRate,
+          noChannels: this._audioChannels,
+          noSamples,
+          channelStrideBytes: noSamples * 4,
+          data,
+          fourCC: grandi.FourCC.FLTp,
+          timecode,
+          timestamp,
+        });
         if (!this._audioLogDone) {
           console.log(
             `[NdiManager] First real audio frame – ${this._audioSampleRate}Hz, ` +
@@ -166,15 +183,16 @@ class NdiManager {
           );
           this._audioLogDone = true;
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (this.running) {
           console.error(
             `[NdiManager] Audio send error (window ${this.windowId}):`,
             err.message,
           );
         }
-      });
+      }
+    }
+    this._audioDraining = false;
   }
 
   /** Stop capturing and destroy the NDI sender. */
@@ -184,6 +202,7 @@ class NdiManager {
       clearTimeout(this._timeout);
       this._timeout = null;
     }
+    this._audioQueue = [];
     if (this.sender) {
       try {
         this.sender.destroy();

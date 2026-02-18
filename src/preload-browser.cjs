@@ -114,11 +114,124 @@ const { ipcRenderer } = require("electron");
 
 // ── Tab audio capture for NDI ────────────────────────────────────────────────
 (() => {
-  let audioCapture = null; // { stream, audioCtx, processor, source, gain }
+  let audioCapture = null;
+
+  // ── AudioWorklet processor source (runs on a dedicated audio thread) ─────
+  // Using an AudioWorklet instead of the deprecated ScriptProcessorNode avoids
+  // main-thread stalls that cause crackling under load.
+  const WORKLET_SOURCE = `
+class AudioCaptureProcessor extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const opts = options.processorOptions || {};
+    this._size = opts.bufferSize || 4096;
+    this._ch0  = new Float32Array(this._size);
+    this._ch1  = new Float32Array(this._size);
+    this._pos  = 0;
+    this.port.onmessage = (e) => {
+      if (e.data === 'stop') this._stopped = true;
+    };
+  }
+
+  process(inputs) {
+    if (this._stopped) return false;
+    const inp = inputs[0];
+    if (!inp || !inp[0]) return true;
+    const src0 = inp[0];
+    const src1 = inp.length > 1 ? inp[1] : src0;
+    let read = 0, rem = src0.length;
+
+    while (rem > 0) {
+      const space = this._size - this._pos;
+      const n     = Math.min(rem, space);
+      this._ch0.set(src0.subarray(read, read + n), this._pos);
+      this._ch1.set(src1.subarray(read, read + n), this._pos);
+      this._pos += n; read += n; rem -= n;
+
+      if (this._pos >= this._size) {
+        const planar = new Float32Array(this._size * 2);
+        planar.set(this._ch0, 0);
+        planar.set(this._ch1, this._size);
+        this.port.postMessage(
+          { noSamples: this._size, planar: planar.buffer },
+          [planar.buffer]
+        );
+        this._ch0 = new Float32Array(this._size);
+        this._ch1 = new Float32Array(this._size);
+        this._pos = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('audio-capture-processor', AudioCaptureProcessor);
+`;
+
+  /**
+   * Preferred path: AudioWorkletNode (off-main-thread, glitch-free).
+   */
+  async function _createWorkletNode(audioCtx, source, bufferSize) {
+    const blob = new Blob([WORKLET_SOURCE], { type: "application/javascript" });
+    const url = URL.createObjectURL(blob);
+    try {
+      await audioCtx.audioWorklet.addModule(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+
+    const node = new AudioWorkletNode(audioCtx, "audio-capture-processor", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { bufferSize },
+    });
+
+    node.port.onmessage = (e) => {
+      const { noSamples, planar } = e.data;
+      ipcRenderer.send("audio-pcm-data", {
+        noSamples,
+        planarBuf: Buffer.from(planar),
+      });
+    };
+
+    source.connect(node);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    node.connect(gain);
+    gain.connect(audioCtx.destination);
+    return { node, gain };
+  }
+
+  /**
+   * Fallback: ScriptProcessorNode (deprecated, main-thread, may crackle).
+   */
+  function _createScriptNode(audioCtx, source, bufferSize) {
+    const node = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+    node.onaudioprocess = (e) => {
+      const ch0 = e.inputBuffer.getChannelData(0);
+      const ch1 = e.inputBuffer.getChannelData(1);
+      const noSamples = ch0.length;
+      const buf = new ArrayBuffer(noSamples * 2 * 4);
+      const view = new Float32Array(buf);
+      view.set(ch0, 0);
+      view.set(ch1, noSamples);
+      ipcRenderer.send("audio-pcm-data", {
+        noSamples,
+        planarBuf: Buffer.from(buf),
+      });
+    };
+
+    source.connect(node);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    node.connect(gain);
+    gain.connect(audioCtx.destination);
+    return { node, gain };
+  }
 
   ipcRenderer.on("start-audio-capture", async (_ev, opts) => {
     if (audioCapture) return; // already running
-    const bufferSize = (opts && opts.bufferSize) || 2048;
+    const bufferSize = (opts && opts.bufferSize) || 4096;
     try {
       // getDisplayMedia returns the tab's own audio thanks to
       // setDisplayMediaRequestHandler in the main process
@@ -147,36 +260,32 @@ const { ipcRenderer } = require("electron");
         new MediaStream(audioTracks),
       );
 
-      const processor = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+      // Prefer AudioWorklet; fall back to ScriptProcessor on older Electron
+      let captureNode;
+      let useWorklet = false;
+      try {
+        captureNode = await _createWorkletNode(audioCtx, source, bufferSize);
+        useWorklet = true;
+      } catch (workletErr) {
+        console.warn(
+          "[AudioCapture] AudioWorklet unavailable, falling back to ScriptProcessor:",
+          workletErr.message,
+        );
+        captureNode = _createScriptNode(audioCtx, source, bufferSize);
+      }
 
-      processor.onaudioprocess = (e) => {
-        const ch0 = e.inputBuffer.getChannelData(0); // Float32Array
-        const ch1 = e.inputBuffer.getChannelData(1);
-        const noSamples = ch0.length;
-
-        // Build planar float32 buffer: [ch0 samples][ch1 samples]
-        const buf = new ArrayBuffer(noSamples * 2 * 4);
-        const view = new Float32Array(buf);
-        view.set(ch0, 0);
-        view.set(ch1, noSamples);
-
-        ipcRenderer.send("audio-pcm-data", {
-          noSamples,
-          planarBuf: Buffer.from(buf),
-        });
+      audioCapture = {
+        stream,
+        audioCtx,
+        source,
+        node: captureNode.node,
+        gain: captureNode.gain,
+        useWorklet,
       };
-
-      source.connect(processor);
-
-      // Must connect to destination for onaudioprocess to fire;
-      // route through a zero-gain node to avoid doubling playback volume
-      const gain = audioCtx.createGain();
-      gain.gain.value = 0;
-      processor.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      audioCapture = { stream, audioCtx, processor, source, gain };
-      console.log(`[AudioCapture] Started – 48 kHz, buffer=${bufferSize}`);
+      console.log(
+        `[AudioCapture] Started – 48 kHz, buffer=${bufferSize}, ` +
+          `engine=${useWorklet ? "AudioWorklet" : "ScriptProcessor"}`,
+      );
     } catch (err) {
       console.error("[AudioCapture] Failed to start:", err);
     }
@@ -185,7 +294,10 @@ const { ipcRenderer } = require("electron");
   ipcRenderer.on("stop-audio-capture", () => {
     if (!audioCapture) return;
     try {
-      audioCapture.processor.disconnect();
+      if (audioCapture.useWorklet && audioCapture.node.port) {
+        audioCapture.node.port.postMessage("stop");
+      }
+      audioCapture.node.disconnect();
       audioCapture.source.disconnect();
       audioCapture.gain.disconnect();
       audioCapture.audioCtx.close();

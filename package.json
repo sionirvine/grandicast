@@ -1,6 +1,6 @@
 {
   "name": "grandicast",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "src/main.cjs",
   "type": "module",
   "private": true,
@@ -12,12 +12,14 @@
   },
   "author": "Felix Adrian",
   "description": "Electron application that captures web content from any URL and broadcasts it as NDI video sources for live video production workflows",
+  "license": "Apache-2.0",
   "config": {
     "forge": {
       "packagerConfig": {
         "asar": false,
         "name": "Grandicast",
-        "icon": "./icon"
+        "icon": "./icon",
+        "executableName": "grandicast"
       },
       "makers": [
         {
@@ -37,10 +39,6 @@
         },
         {
           "name": "@electron-forge/maker-deb",
-          "config": {}
-        },
-        {
-          "name": "@electron-forge/maker-rpm",
           "config": {}
         }
       ]
