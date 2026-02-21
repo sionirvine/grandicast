@@ -28,4 +28,4 @@ jobs:
           
     - name: Install dependencies
       run: bun install
-    - run: bun electron-builder --linux --publish always
+    - run: bunx electron-builder --linux --publish always
