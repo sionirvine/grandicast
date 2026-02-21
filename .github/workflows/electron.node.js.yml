@@ -28,4 +28,12 @@ jobs:
           
     - name: Install dependencies
       run: bun install
+      
     - run: bun run make --platform=linux --arch=x64
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+          name: linux-build-artifact # A meaningful name for your artifact
+          path: /home/runner/work/grandicast/grandicast/out/make # The file or directory path to upload
+          retention-days: 7 # Optional: how long to keep the artifact (default is 90 days)
