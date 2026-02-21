@@ -28,4 +28,4 @@ jobs:
           
     - name: Install dependencies
       run: bun install
-    - run: bunx electron-builder --linux
+    - run: bun run make --platform=linux --arch=x64
