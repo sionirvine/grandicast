@@ -50,8 +50,9 @@ jobs:
 
     - name: Upload to release
       if: github.event_name == 'release'
-      env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
-      run: |
-          find out/make -type f \( -name "*.exe" -o -name "*.deb" -o -name "*.zip" \) -exec gh release upload "${{ github.ref_name }}" {} --clobber \;
+      uses: softprops/action-gh-release@v2
+      with:
+          files: |
+              out/make/**/*.exe
+              out/make/**/*.deb
+              out/make/**/*.zip
