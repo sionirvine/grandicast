@@ -41,6 +41,10 @@ jobs:
     - name: Build
       run: bun run make
 
+    - name: List make output
+      shell: bash
+      run: find out/make -type f 2>/dev/null | sort || echo 'No files found in out/make'
+
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
