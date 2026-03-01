@@ -58,4 +58,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
       run: |
-          find out/make -type f \( -name "*.exe" -o -name "*.deb" -o -name "*.zip" \) -exec gh release upload "${{ github.ref_name }}" {} --clobber \;
+          while IFS= read -r file; do
+            echo "Uploading: $file"
+            gh release upload "${{ github.ref_name }}" "$file" --clobber
+          done < <(find out/make -type f \( -name "*.exe" -o -name "*.deb" -o -name "*.zip" \))
