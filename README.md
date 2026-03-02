@@ -1,5 +1,7 @@
 # Grandicast
 
+![Grandicast Main Window](img/demo_ndi_vmix_obs.gif)
+
 An Electron-based application that captures web content (any URL) and broadcasts it as NDI® video sources over your local network. Perfect for integrating web-based graphics, dashboards, visualizations, and interactive content into live video production workflows.
 
 This app is heavily inspired by [Vingester](https://github.com/rse/vingester). it has basically the same features, but with updated libraries. from initial testing, it has a lower latency compared to Vingester, probably due to more updated libraries and updated Chromium backend.

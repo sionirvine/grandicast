@@ -8,7 +8,10 @@
     "start": "bunx electron .",
     "rebuild": "bunx electron-rebuild -f -w grandi",
     "package": "bunx electron-forge package",
-    "make": "bunx electron-forge make"
+    "make": "bunx electron-forge make",
+    "postinstall": "electron-builder install-app-deps",
+    "build": "electron-builder --windows",
+    "release": "electron-builder --windows --linux --publish always"
   },
   "author": "Felix Adrian",
   "description": "Electron application that captures web content from any URL and broadcasts it as NDI video sources for live video production workflows",
@@ -54,9 +57,9 @@
     "@electron-forge/maker-rpm": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.6.0",
     "@electron-forge/maker-zip": "^7.6.0",
-    "@electron/rebuild": "^4.0.3",
     "@types/bun": "latest",
-    "electron": "^40.4.1"
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0"
   },
   "peerDependencies": {
     "typescript": "^5"
