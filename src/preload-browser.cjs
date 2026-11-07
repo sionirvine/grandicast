@@ -112,6 +112,85 @@ const { ipcRenderer } = require("electron");
   window.BroadcastChannel = BridgedBroadcastChannel;
 })();
 
+// ── Click-and-drag moving for frameless / transparent windows ───────────────
+(() => {
+  if (!process.argv.includes("--grandicast-draggable")) return;
+
+  // Pixels the pointer must travel before a press turns into a window drag,
+  // so ordinary clicks on the page still work.
+  const DRAG_THRESHOLD = 4;
+  const INTERACTIVE =
+    "input, textarea, select, button, a[href], [contenteditable=''], " +
+    "[contenteditable='true'], [draggable='true']";
+
+  let pending = null; // { x, y, pointerId, target } while the button is held
+  let dragging = false;
+  let suppressClick = false;
+
+  function endDrag() {
+    if (dragging) {
+      ipcRenderer.send("window-drag-end");
+      suppressClick = true;
+      setTimeout(() => (suppressClick = false), 0);
+    }
+    dragging = false;
+    pending = null;
+  }
+
+  window.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button !== 0 || e.pointerType !== "mouse") return;
+      if (e.target instanceof Element && e.target.closest(INTERACTIVE)) return;
+      pending = {
+        x: e.screenX,
+        y: e.screenY,
+        pointerId: e.pointerId,
+        target: e.target,
+      };
+    },
+    true,
+  );
+
+  window.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!pending || e.pointerId !== pending.pointerId) return;
+      if (!dragging) {
+        const dx = e.screenX - pending.x;
+        const dy = e.screenY - pending.y;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        dragging = true;
+        try {
+          pending.target.setPointerCapture(e.pointerId);
+        } catch {
+          // target may have been removed from the DOM – drag still works
+        }
+        window.getSelection()?.removeAllRanges();
+        ipcRenderer.send("window-drag-start");
+      }
+      e.preventDefault();
+    },
+    true,
+  );
+
+  window.addEventListener("pointerup", endDrag, true);
+  window.addEventListener("pointercancel", endDrag, true);
+  window.addEventListener("blur", endDrag);
+
+  // Swallow the click that ends a drag so the page doesn't react to it
+  window.addEventListener(
+    "click",
+    (e) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
+})();
+
 // ── Tab audio capture for NDI ────────────────────────────────────────────────
 (() => {
   let audioCapture = null;

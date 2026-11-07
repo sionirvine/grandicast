@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, session } = require("electron");
+const { app, BrowserWindow, ipcMain, session, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const NdiManager = require("./ndi-manager.cjs");
@@ -94,6 +94,44 @@ ipcMain.on("audio-pcm-data", (event, { noSamples, planarBuf }) => {
   }
 });
 
+// ── IPC: Dragging frameless windows ──────────────────────────────────────────
+// The renderer reports when a drag starts/ends; the main process follows the
+// OS cursor so the window keeps up even when the pointer outruns it.
+const activeDrags = new Map(); // webContents.id → { win, timer }
+
+function stopDrag(senderId) {
+  const drag = activeDrags.get(senderId);
+  if (!drag) return;
+  clearInterval(drag.timer);
+  activeDrags.delete(senderId);
+}
+
+ipcMain.on("window-drag-start", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  const senderId = event.sender.id;
+  stopDrag(senderId);
+
+  const cursorStart = screen.getCursorScreenPoint();
+  // Keep the size fixed: setPosition alone can grow the window on scaled displays
+  const boundsStart = win.getBounds();
+
+  const timer = setInterval(() => {
+    if (win.isDestroyed()) return stopDrag(senderId);
+    const cursor = screen.getCursorScreenPoint();
+    win.setBounds({
+      x: boundsStart.x + cursor.x - cursorStart.x,
+      y: boundsStart.y + cursor.y - cursorStart.y,
+      width: boundsStart.width,
+      height: boundsStart.height,
+    });
+  }, 1000 / 60);
+
+  activeDrags.set(senderId, { win, timer });
+});
+
+ipcMain.on("window-drag-end", (event) => stopDrag(event.sender.id));
+
 // ── IPC: Window management ───────────────────────────────────────────────────
 ipcMain.handle("create-window", async (_ev, config) => {
   const id = nextWindowId++;
@@ -116,6 +154,9 @@ ipcMain.handle("create-window", async (_ev, config) => {
       contextIsolation: false,
       nodeIntegration: false,
       backgroundThrottling: false,
+      // Lets the preload enable click-and-drag moving for windows without a frame
+      additionalArguments:
+        transparent || frameless ? ["--grandicast-draggable"] : [],
     },
     title: config.title || `Grandicast - Window ${id}`,
   });
