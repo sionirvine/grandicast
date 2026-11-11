@@ -135,6 +135,13 @@ A bare array of window objects is also accepted. Supported per-window fields:
 windows. Launching with `--config` starts headless unless `--panel` is also
 passed.
 
+### AI Agent Skill
+
+An agent-ready usage guide for the CLI lives at
+[`skills/grandicast/SKILL.md`](skills/grandicast/SKILL.md). It covers safe
+inspection, adding and updating sources, JSON configs, headless operation, and
+troubleshooting.
+
 ### Build Distributable
 
 Package the application for distribution:
