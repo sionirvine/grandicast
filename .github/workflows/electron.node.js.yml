@@ -49,6 +49,8 @@ jobs:
             name: linux
           - os: windows-latest
             name: windows
+          - os: macos-latest
+            name: macos
 
     runs-on: ${{ matrix.os }}
 
@@ -66,18 +68,27 @@ jobs:
     - name: Install dependencies
       run: bun install
 
+    - name: Install Linux packaging tools
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y rpm
+
     - name: Build
+      if: matrix.os != 'macos-latest'
       run: bun run make
+
+    - name: Build macOS
+      if: matrix.os == 'macos-latest'
+      run: bun run make --platform=darwin --arch=x64,arm64
 
     - name: List make output
       shell: bash
-      run: find out/make -type f 2>/dev/null | sort || echo 'No files found in out/make'
+      run: find build/make -type f 2>/dev/null | sort || echo 'No files found in build/make'
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
           name: ${{ matrix.name }}-build-artifact
-          path: out/make
+          path: build/make
           retention-days: 7
 
   # Publishes once after both builds finish, either into a new release for an
@@ -109,4 +120,6 @@ jobs:
           files: |
               artifacts/**/*.exe
               artifacts/**/*.deb
+              artifacts/**/*.rpm
               artifacts/**/*.zip
+              artifacts/**/*.dmg

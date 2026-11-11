@@ -59,6 +59,82 @@ Run the application in development mode:
 bun run start
 ```
 
+### Tests
+
+```bash
+# CLI, socket, and main-process tests
+npm test
+
+# Control panel UI tests in Chrome
+npm run test:ui
+
+# Real Electron + NDI sender/receiver end-to-end test
+npm run test:e2e
+```
+
+`test:e2e` requires the Electron binary and NDI runtime installed. It starts a
+real NDI stream, receives it locally, then changes size/FPS/name via CLI
+commands and verifies the incoming frames change.
+
+### Command Line
+
+Grandicast can run headless and be controlled from a terminal. The first
+instance owns the windows and NDI outputs; later invocations talk to it over a
+local socket.
+
+```bash
+# Start the normal control panel
+grandicast
+
+# Start headless from a JSON config
+grandicast --headless --config sources.json
+
+# Re-apply config in a running instance
+grandicast apply --config sources.json
+
+# Add and stream a single URL
+grandicast add --url https://example.com --ndi --name "Lower Third"
+
+# Inspect and control running sources
+grandicast list
+grandicast start 1 --fps 60 --audio high
+grandicast stop 1
+grandicast close 1
+grandicast quit
+```
+
+Run `grandicast --help` for all commands and options. Add `--json` for
+machine-readable output. In development, use `bun run start -- <args>` instead
+of the packaged `grandicast` binary.
+
+#### JSON config
+
+```json
+{
+  "windows": [
+    {
+      "url": "https://example.com/scoreboard",
+      "width": 1920,
+      "height": 1080,
+      "hidden": true,
+      "ndi": {
+        "enabled": true,
+        "name": "Scoreboard",
+        "fps": 60,
+        "audio": "off"
+      }
+    }
+  ]
+}
+```
+
+A bare array of window objects is also accepted. Supported per-window fields:
+`url`, `width`, `height`, `transparent`, `frameless`, `hidden`, `title`, and
+`ndi` (`true`/`false` or an object with `enabled`, `name`, `fps`, `audio`).
+`apply` replaces the current set of windows; pass `--merge` to keep existing
+windows. Launching with `--config` starts headless unless `--panel` is also
+passed.
+
 ### Build Distributable
 
 Package the application for distribution:
@@ -117,6 +193,7 @@ bun run make --platform=win32 --arch=x64
 
 - **`main.cjs`** - Main Electron process, manages windows and IPC communication
 - **`ndi-manager.cjs`** - Handles NDI streaming via the `grandi` library
+- **`cli.cjs`** - CLI argument parsing, JSON config loading, and the local control socket
 - **`control-panel.html`** - Control panel UI for managing windows and NDI sources
 - **`preload-control.cjs`** - Preload script for the control panel
 - **`preload-browser.cjs`** - Preload script for browser windows, includes BroadcastChannel bridge
