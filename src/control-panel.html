@@ -356,6 +356,8 @@
 
       const container = document.getElementById("container");
       const emptyEl = document.getElementById("empty");
+      let uiReady = false;
+      const pendingEvents = [];
 
       // ── Add-window button ──────────────────────────────────────────────────────
       const addBtnEl = document.getElementById("add-btn");
@@ -387,16 +389,16 @@
           }
         })();
 
-        // ── Listen for external window closes ──────────────────────────────────────
-        api.onWindowClosed((windowId) => {
-          for (const [pid, c] of cards) {
-            if (c.windowId === windowId) {
-              c.windowId = null;
-              c.ndiActive = false;
-              refreshCard(pid);
-              break;
-            }
-          }
+        // ── Listen for external window changes ─────────────────────────────────────
+        api.onWindowClosed((windowId) => handleWindowClosed(windowId));
+        api.onWindowCreated((payload) => {
+          attachWindow(payload.id, payload.config, payload.ndiActive);
+        });
+        api.onWindowUpdated((payload) => {
+          updateWindowCard(payload.id, payload.config, payload.ndiActive);
+        });
+        api.onNdiState((payload) => {
+          updateNdiState(payload);
         });
       } else {
         console.error(
@@ -407,9 +409,152 @@
         badge.className = "ndi-badge fail";
       }
 
-      function addCard(preset) {
+      function findByWindowId(windowId) {
+        for (const [pid, c] of cards) {
+          if (c.windowId === windowId) return pid;
+        }
+        return null;
+      }
+
+      function findIdleCard(preset) {
+        const url = String((preset && preset.url) || "").trim();
+        if (!url) return null;
+        for (const [pid, c] of cards) {
+          if (c.windowId) continue;
+          const el = $(`url-${pid}`);
+          if (el && el.value.trim() === url) return pid;
+        }
+        return null;
+      }
+
+      function attachWindow(windowId, preset, ndiActive) {
+        if (!uiReady) {
+          pendingEvents.push(["created", { windowId, preset, ndiActive }]);
+          return;
+        }
+
+        const existing = findByWindowId(windowId);
+        if (existing != null) {
+          cards.get(existing).ndiActive = !!ndiActive;
+          refreshCard(existing);
+          return;
+        }
+
+        const idle = findIdleCard(preset);
+        if (idle != null) {
+          const c = cards.get(idle);
+          c.windowId = windowId;
+          c.ndiActive = !!ndiActive;
+          if (preset.url !== undefined) $(`url-${idle}`).value = preset.url;
+          if (preset.width !== undefined) $(`w-${idle}`).value = preset.width;
+          if (preset.height !== undefined) $(`h-${idle}`).value = preset.height;
+          if (preset.transparent !== undefined) {
+            $(`tp-${idle}`).checked = !!preset.transparent;
+          }
+          if (preset.frameless !== undefined) {
+            $(`frameless-${idle}`).checked = !!preset.frameless;
+          }
+          if (preset.hidden !== undefined) {
+            $(`hidden-${idle}`).checked = !!preset.hidden;
+          }
+          if (preset.ndiName !== undefined) {
+            $(`ndi-${idle}`).value = preset.ndiName;
+          }
+          if (preset.fps !== undefined) $(`fps-${idle}`).value = preset.fps;
+          if (preset.audioPreset !== undefined) {
+            $(`audio-${idle}`).value = preset.audioPreset;
+          }
+          refreshCard(idle);
+        } else {
+          addCard(preset, { windowId, ndiActive });
+        }
+        persistSettings();
+      }
+
+      function updateWindowCard(windowId, patch, ndiActive) {
+        if (!uiReady) {
+          pendingEvents.push(["updated", { windowId, patch, ndiActive }]);
+          return;
+        }
+
+        const pid = findByWindowId(windowId);
+        if (pid == null) {
+          attachWindow(windowId, patch, !!ndiActive);
+          return;
+        }
+
+        if (patch.url !== undefined) $(`url-${pid}`).value = patch.url;
+        if (patch.width !== undefined) $(`w-${pid}`).value = patch.width;
+        if (patch.height !== undefined) $(`h-${pid}`).value = patch.height;
+        if (patch.ndiName !== undefined) $(`ndi-${pid}`).value = patch.ndiName;
+        if (patch.fps !== undefined) $(`fps-${pid}`).value = patch.fps;
+        if (patch.audioPreset !== undefined) {
+          $(`audio-${pid}`).value = patch.audioPreset;
+        }
+        refreshCard(pid);
+        persistSettings();
+      }
+
+      function updateNdiState(payload) {
+        if (!uiReady) {
+          pendingEvents.push(["ndi", payload]);
+          return;
+        }
+
+        const pid = findByWindowId(payload.id);
+        if (pid == null) return;
+
+        const c = cards.get(pid);
+        c.ndiActive = !!payload.active;
+        if (payload.ndiName !== undefined) $(`ndi-${pid}`).value = payload.ndiName;
+        if (payload.fps !== undefined) $(`fps-${pid}`).value = payload.fps;
+        if (payload.audioPreset !== undefined) {
+          $(`audio-${pid}`).value = payload.audioPreset;
+        }
+        refreshCard(pid);
+        persistSettings();
+      }
+
+      function handleWindowClosed(windowId) {
+        if (!uiReady) {
+          pendingEvents.push(["closed", { windowId }]);
+          return;
+        }
+        const pid = findByWindowId(windowId);
+        if (pid == null) return;
+        const c = cards.get(pid);
+        c.windowId = null;
+        c.ndiActive = false;
+        refreshCard(pid);
+      }
+
+      function flushPendingEvents() {
+        uiReady = true;
+        const events = pendingEvents.splice(0);
+        for (const [kind, payload] of events) {
+          if (kind === "created") {
+            attachWindow(payload.windowId, payload.preset, payload.ndiActive);
+          } else if (kind === "updated") {
+            updateWindowCard(
+              payload.windowId,
+              payload.patch,
+              payload.ndiActive,
+            );
+          } else if (kind === "ndi") {
+            updateNdiState(payload);
+          } else if (kind === "closed") {
+            handleWindowClosed(payload.windowId);
+          }
+        }
+      }
+
+      function addCard(preset, runtime) {
         const pid = nextPanel++;
-        cards.set(pid, { windowId: null, ndiActive: false });
+        const rt = runtime || {};
+        cards.set(pid, {
+          windowId: rt.windowId != null ? rt.windowId : null,
+          ndiActive: !!rt.ndiActive,
+        });
 
         const p = preset || {};
         // Backward compat: old settings had audioEnabled boolean
@@ -557,6 +702,7 @@
         $(`hidden-${pid}`).addEventListener("change", autoSave);
         $(`audio-${pid}`).addEventListener("change", autoSave);
 
+        refreshCard(pid);
         toggleEmpty();
       }
 
@@ -642,6 +788,7 @@
             fps,
             audioEnabled,
             audioBufferSize,
+            audioPreset,
           );
           if (result.success) {
             c.ndiActive = true;
@@ -753,19 +900,46 @@
         }
       }
 
-      // ── Restore saved settings on startup ────────────────────────────────────────
+      // ── Restore saved settings and attach running windows on startup ─────────────
       (async () => {
-        if (!api || !api.loadSettings) return;
-        try {
-          const saved = await api.loadSettings();
-          if (Array.isArray(saved) && saved.length > 0) {
-            for (const preset of saved) {
-              addCard(preset);
-            }
+        let saved = [];
+        if (api && api.loadSettings) {
+          try {
+            const loaded = await api.loadSettings();
+            if (Array.isArray(loaded)) saved = loaded;
+          } catch (e) {
+            console.error("Failed to restore settings:", e);
           }
-        } catch (e) {
-          console.error("Failed to restore settings:", e);
         }
+
+        for (const preset of saved) addCard(preset);
+
+        if (api && api.listWindows) {
+          try {
+            const windows = await api.listWindows();
+            for (const w of windows) {
+              attachWindow(
+                w.id,
+                {
+                  url: w.url,
+                  width: w.width,
+                  height: w.height,
+                  transparent: w.transparent,
+                  frameless: w.frameless,
+                  hidden: w.hidden,
+                  ndiName: w.ndiName,
+                  fps: w.fps,
+                  audioPreset: w.audioPreset,
+                },
+                w.ndiActive,
+              );
+            }
+          } catch (e) {
+            console.error("Failed to sync running windows:", e);
+          }
+        }
+
+        flushPendingEvents();
       })();
     </script>
   </body>
