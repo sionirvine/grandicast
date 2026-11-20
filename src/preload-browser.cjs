@@ -12,7 +12,13 @@
 
 const { ipcRenderer } = require("electron");
 
+// The preload also runs in iframes (nodeIntegrationInSubFrames) so dragging
+// works over embedded players; everything except dragging stays top-frame only.
+const isTopFrame = window === window.top;
+
 (() => {
+  if (!isTopFrame) return;
+
   /** @type {Map<string, Set<BridgedBroadcastChannel>>} */
   const registry = new Map();
 
@@ -114,7 +120,8 @@ const { ipcRenderer } = require("electron");
 
 // ── Click-and-drag moving for frameless / transparent windows ───────────────
 (() => {
-  if (!process.argv.includes("--grandicast-draggable")) return;
+  // Asked from every frame, since iframes in other processes don't share argv
+  if (!ipcRenderer.sendSync("window-is-draggable")) return;
 
   // Pixels the pointer must travel before a press turns into a window drag,
   // so ordinary clicks on the page still work.
@@ -140,7 +147,8 @@ const { ipcRenderer } = require("electron");
   window.addEventListener(
     "pointerdown",
     (e) => {
-      if (e.button !== 0 || e.pointerType !== "mouse") return;
+      // Only real mouse input: pages can dispatch synthetic pointer events
+      if (!e.isTrusted || e.button !== 0 || e.pointerType !== "mouse") return;
       if (e.target instanceof Element && e.target.closest(INTERACTIVE)) return;
       pending = {
         x: e.screenX,
@@ -155,7 +163,7 @@ const { ipcRenderer } = require("electron");
   window.addEventListener(
     "pointermove",
     (e) => {
-      if (!pending || e.pointerId !== pending.pointerId) return;
+      if (!pending || !e.isTrusted || e.pointerId !== pending.pointerId) return;
       if (!dragging) {
         const dx = e.screenX - pending.x;
         const dy = e.screenY - pending.y;
@@ -193,6 +201,8 @@ const { ipcRenderer } = require("electron");
 
 // ── Tab audio capture for NDI ────────────────────────────────────────────────
 (() => {
+  if (!isTopFrame) return;
+
   let audioCapture = null;
 
   // ── AudioWorklet processor source (runs on a dedicated audio thread) ─────
@@ -269,7 +279,7 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor);
       const { noSamples, planar } = e.data;
       ipcRenderer.send("audio-pcm-data", {
         noSamples,
-        planarBuf: Buffer.from(planar),
+        planarBuf: new Uint8Array(planar),
       });
     };
 
@@ -296,7 +306,7 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor);
       view.set(ch1, noSamples);
       ipcRenderer.send("audio-pcm-data", {
         noSamples,
-        planarBuf: Buffer.from(buf),
+        planarBuf: new Uint8Array(buf),
       });
     };
 
@@ -308,8 +318,16 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor);
     return { node, gain };
   }
 
+  // NDI start and page load can both ask for capture at the same moment; the
+  // generation counter lets a stop (or a second start) win over a start that is
+  // still awaiting getDisplayMedia.
+  let captureGeneration = 0;
+  let captureStarting = false;
+
   ipcRenderer.on("start-audio-capture", async (_ev, opts) => {
-    if (audioCapture) return; // already running
+    if (audioCapture || captureStarting) return; // already running or starting
+    captureStarting = true;
+    const generation = ++captureGeneration;
     const bufferSize = (opts && opts.bufferSize) || 4096;
     try {
       // getDisplayMedia returns the tab's own audio thanks to
@@ -361,16 +379,33 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor);
         gain: captureNode.gain,
         useWorklet,
       };
+
+      if (generation !== captureGeneration) {
+        // A stop arrived while we were starting
+        _stopCapture();
+        return;
+      }
+
+      // An AudioContext created without a user gesture can start suspended
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+
       console.log(
         `[AudioCapture] Started – 48 kHz, buffer=${bufferSize}, ` +
           `engine=${useWorklet ? "AudioWorklet" : "ScriptProcessor"}`,
       );
     } catch (err) {
       console.error("[AudioCapture] Failed to start:", err);
+    } finally {
+      captureStarting = false;
     }
   });
 
   ipcRenderer.on("stop-audio-capture", () => {
+    captureGeneration++;
+    _stopCapture();
+  });
+
+  function _stopCapture() {
     if (!audioCapture) return;
     try {
       if (audioCapture.useWorklet && audioCapture.node.port) {
@@ -386,5 +421,5 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor);
     }
     audioCapture = null;
     console.log("[AudioCapture] Stopped");
-  });
+  }
 })();

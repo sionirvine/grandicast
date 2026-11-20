@@ -86,6 +86,7 @@ Useful add flags:
 - `--name` sets the NDI source name. Without it, Grandicast uses `Grandicast-<id>`.
 - `--hidden` keeps the window off-screen while still streaming it.
 - `--transparent` and `--frameless` change the window appearance.
+- `--muted` silences the window locally while NDI still receives its audio. Use `update <id> --no-muted` to unmute.
 - `--audio off|low|balanced|high|max` selects the audio buffer preset. `off` disables audio; `balanced` is the default when NDI audio is enabled.
 
 Without `--ndi`, `add` creates the window but does not stream until `start` is called.

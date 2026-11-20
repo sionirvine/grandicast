@@ -129,7 +129,7 @@ of the packaged `grandicast` binary.
 ```
 
 A bare array of window objects is also accepted. Supported per-window fields:
-`url`, `width`, `height`, `transparent`, `frameless`, `hidden`, `title`, and
+`url`, `width`, `height`, `transparent`, `frameless`, `hidden`, `muted`, `title`, and
 `ndi` (`true`/`false` or an object with `enabled`, `name`, `fps`, `audio`).
 `apply` replaces the current set of windows; pass `--merge` to keep existing
 windows. Launching with `--config` starts headless unless `--panel` is also
