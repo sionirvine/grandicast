@@ -730,10 +730,43 @@ function resizeMenu(id, data) {
   ];
 }
 
-ipcMain.on("window-context-menu", (event) => {
+/**
+ * Audio Output submenu. `outputs` are the device labels the right-clicked frame
+ * could see; "" means the system default.
+ */
+function audioOutputMenu(id, data, outputs) {
+  const current = data.config.audioOutput || "";
+  const choose = (label) =>
+    runMenuAction("Audio Output", () =>
+      updateManagedWindow(id, { audioOutput: label }),
+    );
+  const labels = [...new Set(outputs)];
+  if (current && !labels.includes(current)) labels.push(current);
+
+  return [
+    {
+      label: "System default",
+      type: "radio",
+      checked: current === "",
+      click: () => choose(""),
+    },
+    { type: "separator" },
+    ...labels.map((label) => ({
+      label: outputs.includes(label) ? label : `${label} (not connected)`,
+      type: "radio",
+      checked: label === current,
+      click: () => choose(label),
+    })),
+  ];
+}
+
+ipcMain.on("window-context-menu", (event, payload) => {
   const found = findWindowBySender(event.sender);
   if (!found) return;
   const { id, data } = found;
+  const outputs = Array.isArray(payload && payload.outputs)
+    ? payload.outputs.filter((l) => typeof l === "string" && l)
+    : [];
 
   const menu = Menu.buildFromTemplate([
     data.ndiActive
@@ -764,6 +797,7 @@ ipcMain.on("window-context-menu", (event) => {
         }),
     },
     { label: "Resize", submenu: resizeMenu(id, data) },
+    { label: "Audio Output", submenu: audioOutputMenu(id, data, outputs) },
     { type: "separator" },
     {
       label: "Stop window",

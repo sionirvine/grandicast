@@ -11,9 +11,15 @@ try {
 /**
  * Manages an NDI sender for a single Electron BrowserWindow.
  *
- * Captures frames via webContents.capturePage(), converts to raw BGRA bitmap,
- * and pushes them through a grandi sender at the configured FPS.
+ * Receives the frames the window paints (webContents.beginFrameSubscription),
+ * converts the latest one to a raw BGRA bitmap and pushes it through a grandi
+ * sender at the configured FPS. Polling capturePage() every frame instead
+ * made hover effects flicker in the on-screen window, so capturePage() is only
+ * a fallback for windows that aren't painting (e.g. hidden ones).
  */
+
+// Fall back to capturePage() when no painted frame has arrived for this long
+const FRAME_STALE_MS = 1000;
 class NdiManager {
   /**
    * @param {number} windowId
@@ -36,6 +42,86 @@ class NdiManager {
 
     /** @type {Array<{data: Buffer, noSamples: number}>} */
     this._audioQueue = [];
+
+    /** @type {import('electron').NativeImage | null} latest painted frame */
+    this._latestFrame = null;
+    this._frameAt = 0;
+    this._subscribed = false;
+    /** Bitmap of _latestFrame at the output size, reused until either changes */
+    this._bitmapCache = null;
+  }
+
+  /** @private */
+  _subscribeFrames() {
+    const wc = this.browserWindow.webContents;
+    try {
+      wc.beginFrameSubscription(false, (image) => {
+        this._latestFrame = image;
+        this._frameAt = performance.now();
+      });
+      this._subscribed = true;
+    } catch (err) {
+      // Every frame then comes from the capturePage() fallback
+      console.warn("[NdiManager] Frame subscription unavailable:", err.message);
+    }
+  }
+
+  /** @private */
+  _unsubscribeFrames() {
+    if (this._subscribed && !this.browserWindow.isDestroyed()) {
+      try {
+        this.browserWindow.webContents.endFrameSubscription();
+      } catch {
+        // window is going away
+      }
+    }
+    this._subscribed = false;
+    this._latestFrame = null;
+    this._bitmapCache = null;
+  }
+
+  /**
+   * The current frame as a BGRA bitmap at the output size.
+   * @private
+   */
+  async _currentBitmap() {
+    const fresh =
+      this._latestFrame && performance.now() - this._frameAt < FRAME_STALE_MS;
+    if (!fresh !== !!this._usingFallback) {
+      this._usingFallback = !fresh;
+      console.log(
+        `[NdiManager] Window ${this.windowId}: ` +
+          (fresh
+            ? "using painted frames"
+            : "no painted frames, capturing the page directly"),
+      );
+    }
+    const image = fresh
+      ? this._latestFrame
+      : await this.browserWindow.webContents.capturePage();
+
+    const cache = this._bitmapCache;
+    if (
+      cache &&
+      cache.image === image &&
+      cache.width === this.width &&
+      cache.height === this.height
+    ) {
+      return cache.bitmap;
+    }
+
+    const size = image.getSize();
+    const bitmap =
+      size.width !== this.width || size.height !== this.height
+        ? image.resize({ width: this.width, height: this.height }).toBitmap()
+        : image.toBitmap();
+    this._bitmapCache = {
+      image,
+      width: this.width,
+      height: this.height,
+      bitmap,
+    };
+    return bitmap;
   }
 
   /**
@@ -62,6 +148,7 @@ class NdiManager {
     });
 
     this._audioQueue = [];
+    this._subscribeFrames();
 
     this.running = true;
     console.log(
@@ -89,17 +176,7 @@ class NdiManager {
 
     // ── Video frame ──────────────────────────────────────────────────────
     try {
-      const image = await this.browserWindow.webContents.capturePage();
-      const size = image.getSize();
-
-      let bitmap;
-      if (size.width !== this.width || size.height !== this.height) {
-        bitmap = image
-          .resize({ width: this.width, height: this.height })
-          .toBitmap();
-      } else {
-        bitmap = image.toBitmap();
-      }
+      const bitmap = await this._currentBitmap();
 
       await this.sender.video({
         xres: this.width,
@@ -203,6 +280,7 @@ class NdiManager {
       this._timeout = null;
     }
     this._audioQueue = [];
+    this._unsubscribeFrames();
     if (this.sender) {
       try {
         this.sender.destroy();

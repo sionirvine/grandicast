@@ -134,7 +134,24 @@ const frameConfig = ipcRenderer.sendSync("window-frame-config") || {};
       if (!e.isTrusted) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      ipcRenderer.send("window-context-menu");
+      // The main process can't list devices, so send them with the request
+      // for the menu's Audio Output submenu
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then(
+          (devices) =>
+            devices
+              .filter(
+                (d) =>
+                  d.kind === "audiooutput" &&
+                  d.label &&
+                  d.deviceId !== "default" &&
+                  d.deviceId !== "communications",
+              )
+              .map((d) => d.label),
+          () => [],
+        )
+        .then((outputs) => ipcRenderer.send("window-context-menu", { outputs }));
     },
     true,
   );
