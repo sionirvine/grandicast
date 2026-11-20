@@ -1,11 +1,14 @@
 {
   "name": "grandicast",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "src/main.cjs",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "bunx electron .",
+    "test": "node --test test/cli.test.cjs test/main.integration.test.cjs",
+    "test:ui": "node test/run-ui-tests.cjs",
+    "test:e2e": "node --test test/ndi.e2e.test.cjs",
     "rebuild": "bunx electron-rebuild -f -w grandi",
     "package": "bunx electron-forge package",
     "make": "bunx electron-forge make",
@@ -43,8 +46,13 @@
         {
           "name": "@electron-forge/maker-deb",
           "config": {}
+        },
+        {
+          "name": "@electron-forge/maker-rpm",
+          "config": {}
         }
-      ]
+      ],
+      "outDir": "build"
     }
   },
   "dependencies": {
