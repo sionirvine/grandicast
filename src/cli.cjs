@@ -57,10 +57,13 @@ const OPTIONS = {
   version: { type: "boolean" },
 };
 
+// On Windows, Electron refuses to start when a separate argument looks like a
+// URL (e.g. "https://...") unless "--" appears before it. Users therefore need
+// "--url=https://..." or a "--" separator, which may sit before or after the
+// command. None of our options or positionals use a literal "--", so drop every
+// one instead of letting parseArgs treat it as the end of options.
 function getArgv(argv, isPackaged) {
-  let args = argv.slice(isPackaged ? 1 : 2);
-  while (args[0] === "--") args = args.slice(1);
-  return args;
+  return argv.slice(isPackaged ? 1 : 2).filter((arg) => arg !== "--");
 }
 
 function parseCli(args) {
@@ -104,7 +107,7 @@ Commands:
   quit                       Quit Grandicast (alias: shutdown)
 
 Options:
-  --url <url>                Page URL
+  --url=<url>                Page URL (see "URLs on Windows" below)
   --name <name>              NDI source name
   --width <px>               Window width (default: 1280)
   --height <px>              Window height (default: 720)
@@ -124,6 +127,14 @@ Options:
   --user-data-dir <dir>      Use a custom profile directory
   --help                     Show this help
   --version                  Show the version
+
+URLs on Windows:
+  Electron refuses to start on Windows when a separate argument looks like a
+  URL ("https://...", or any "scheme:..." value). Attach the value with "="
+  or put "--" before such arguments:
+    grandicast add --url=https://example.com --ndi
+    grandicast -- add --url https://example.com --ndi
+  The same applies to other values with a "scheme:" prefix, e.g. --title.
 
 JSON config:
   {
