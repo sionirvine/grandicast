@@ -46,6 +46,30 @@ test("getArgv handles packaged and development arguments", () => {
   ]);
 });
 
+test("getArgv drops -- separators anywhere so Windows URL workarounds parse", () => {
+  const url = "https://example.com";
+  const forms = [
+    ["grandicast", "--", "add", "--url", url, "--ndi"],
+    ["grandicast", "add", "--", "--url", url, "--ndi"],
+    ["grandicast", "add", "--url", "--", url, "--ndi"],
+    ["grandicast", "--", "add", "--", "--url", url, "--ndi"],
+    ["grandicast", "add", "--url=" + url, "--ndi"],
+  ];
+  for (const argv of forms) {
+    const parsed = cli.parseCli(cli.getArgv(argv, true));
+    assert.equal(parsed.command, "add", argv.join(" "));
+    assert.deepEqual(parsed.positionals, ["add"], argv.join(" "));
+    assert.equal(parsed.options.url, url, argv.join(" "));
+    assert.equal(parsed.options.ndi, true, argv.join(" "));
+  }
+
+  const update = cli.parseCli(
+    cli.getArgv(["electron", "app", "update", "1", "--", "--url", url], false),
+  );
+  assert.deepEqual(update.positionals, ["update", "1"]);
+  assert.equal(update.options.url, url);
+});
+
 test("parseCli parses commands, aliases, and options", () => {
   assert.equal(cli.parseCli([]).command, null);
   assert.equal(cli.parseCli(["ls"]).command, "list");

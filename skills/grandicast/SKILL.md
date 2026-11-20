@@ -77,8 +77,10 @@ Do not launch a second instance with `grandicast` when you want to control an ex
 ### Add and stream a URL
 
 ```bash
-grandicast add --url https://example.com --ndi --name "Scoreboard" --width 1920 --height 1080 --fps 60 --audio off
+grandicast add --url=https://example.com --ndi --name "Scoreboard" --width 1920 --height 1080 --fps 60 --audio off
 ```
+
+Always pass URLs as `--url=<url>` (with `=`). On Windows, Electron refuses to start and exits with code -1, printing nothing, when a separate argument looks like a URL (`https://...` or any `scheme:...` value, including for `--title`). Putting `--` before such arguments also works: `grandicast -- add --url https://example.com`.
 
 Useful add flags:
 
@@ -96,7 +98,7 @@ Without `--ndi`, `add` creates the window but does not stream until `start` is c
 grandicast update 1 --width 1280 --height 720 --fps 30
 ```
 
-`update` accepts `--url`, `--width`, `--height`, `--title`, `--name`, `--fps`, and `--audio`. Resolution and FPS changes apply live while NDI is active. Changing the NDI name or audio preset while active restarts the sender, so the source may disappear briefly and reappear under the new name.
+`update` accepts `--url=<url>`, `--width`, `--height`, `--title`, `--name`, `--fps`, and `--audio`. Resolution and FPS changes apply live while NDI is active. Changing the NDI name or audio preset while active restarts the sender, so the source may disappear briefly and reappear under the new name.
 
 ### Start, stop, reload, and close
 
@@ -172,7 +174,7 @@ cat sources.json | grandicast apply --config -
 Create one stream and print its new ID:
 
 ```bash
-grandicast add --url https://example.com/scoreboard --ndi --name Scoreboard --json
+grandicast add --url=https://example.com/scoreboard --ndi --name Scoreboard --json
 ```
 
 Check whether a specific source is live without guessing text output:

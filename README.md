@@ -93,7 +93,7 @@ grandicast --headless --config sources.json
 grandicast apply --config sources.json
 
 # Add and stream a single URL
-grandicast add --url https://example.com --ndi --name "Lower Third"
+grandicast add --url=https://example.com --ndi --name "Lower Third"
 
 # Inspect and control running sources
 grandicast list
@@ -102,6 +102,11 @@ grandicast stop 1
 grandicast close 1
 grandicast quit
 ```
+
+Pass URLs as `--url=<url>`. On Windows, Electron refuses to start (exit code
+-1, no output) when a separate argument looks like a URL, such as
+`--url https://example.com` or any other `scheme:...` value. Putting `--` before
+those arguments also works: `grandicast -- add --url https://example.com`.
 
 Run `grandicast --help` for all commands and options. Add `--json` for
 machine-readable output. In development, use `bun run start -- <args>` instead
