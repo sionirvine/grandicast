@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("grandicast", {
     }),
   stopNdi: (id) => ipcRenderer.invoke("stop-ndi", id),
   checkNdi: () => ipcRenderer.invoke("check-ndi"),
+  getVersion: () => ipcRenderer.invoke("get-version"),
 
   // Settings persistence
   saveSettings: (panels) => ipcRenderer.invoke("save-settings", panels),

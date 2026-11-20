@@ -48,6 +48,13 @@
       header h1 .accent {
         color: #4ecca3;
       }
+      header h1 .app-version {
+        margin-left: 6px;
+        font-size: 11px;
+        font-weight: 400;
+        letter-spacing: 0;
+        opacity: 0.45;
+      }
       .header-right {
         display: flex;
         align-items: center;
@@ -334,7 +341,7 @@
   </head>
   <body>
     <header>
-      <h1>Gra<span class="accent">ndi</span>cast</h1>
+      <h1>Gra<span class="accent">ndi</span>cast<span class="app-version" id="app-version"></span></h1>
       <div class="header-right">
         <span class="ndi-badge" id="ndi-badge">…</span>
         <button class="add-btn" id="add-btn">+ Add Window</button>
@@ -366,6 +373,16 @@
           addCard();
           persistSettings();
         });
+      }
+
+      // ── App version ──────────────────────────────────────────────────────────────
+      if (api) {
+        api
+          .getVersion()
+          .then((v) => {
+            document.getElementById("app-version").textContent = `v${v}`;
+          })
+          .catch(() => {});
       }
 
       // ── NDI availability check ───────────────────────────────────────────────────
@@ -457,6 +474,9 @@
           if (preset.hidden !== undefined) {
             $(`hidden-${idle}`).checked = !!preset.hidden;
           }
+          if (preset.muted !== undefined) {
+            $(`muted-${idle}`).checked = !!preset.muted;
+          }
           if (preset.ndiName !== undefined) {
             $(`ndi-${idle}`).value = preset.ndiName;
           }
@@ -491,6 +511,7 @@
         if (patch.audioPreset !== undefined) {
           $(`audio-${pid}`).value = patch.audioPreset;
         }
+        if (patch.muted !== undefined) $(`muted-${pid}`).checked = !!patch.muted;
         refreshCard(pid);
         persistSettings();
       }
@@ -624,6 +645,18 @@
         </div>
       </div>
 
+      <!-- Local audio -->
+      <div class="fg">
+        <label>Local Audio</label>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="muted-${pid}" ${p.muted ? "checked" : ""}>
+            <span class="toggle-track"></span>
+          </label>
+          <span>Mute (still sent to NDI)</span>
+        </div>
+      </div>
+
       <!-- NDI section -->
       <div class="section">NDI Output</div>
 
@@ -701,6 +734,14 @@
         $(`frameless-${pid}`).addEventListener("change", autoSave);
         $(`hidden-${pid}`).addEventListener("change", autoSave);
         $(`audio-${pid}`).addEventListener("change", autoSave);
+        // Muting applies live to a running window
+        $(`muted-${pid}`).addEventListener("change", () => {
+          const c = cards.get(pid);
+          if (c && c.windowId) {
+            api.updateWindow(c.windowId, { muted: $(`muted-${pid}`).checked });
+          }
+          autoSave();
+        });
 
         refreshCard(pid);
         toggleEmpty();
@@ -717,6 +758,7 @@
         const transparent = $(`tp-${pid}`).checked;
         const frameless = $(`frameless-${pid}`).checked;
         const hidden = $(`hidden-${pid}`).checked;
+        const muted = $(`muted-${pid}`).checked;
 
         if (!url) {
           $(`url-${pid}`).focus();
@@ -731,6 +773,7 @@
             transparent,
             frameless,
             hidden,
+            muted,
             title: `Grandicast – Window ${pid}`,
           });
           c.windowId = wid;
@@ -886,6 +929,7 @@
               ? $(`frameless-${pid}`).checked
               : false,
             hidden: $(`hidden-${pid}`) ? $(`hidden-${pid}`).checked : false,
+            muted: $(`muted-${pid}`) ? $(`muted-${pid}`).checked : false,
             ndiName: $(`ndi-${pid}`) ? $(`ndi-${pid}`).value : "",
             fps: int($(`fps-${pid}`) ? $(`fps-${pid}`).value : 30, 30),
             audioPreset: $(`audio-${pid}`) ? $(`audio-${pid}`).value : "off",
@@ -927,6 +971,7 @@
                   transparent: w.transparent,
                   frameless: w.frameless,
                   hidden: w.hidden,
+                  muted: w.muted,
                   ndiName: w.ndiName,
                   fps: w.fps,
                   audioPreset: w.audioPreset,

@@ -106,6 +106,7 @@ function panelPayload(id) {
       transparent: !!data.config.transparent,
       frameless: !!data.config.frameless,
       hidden: !!data.config.hidden,
+      muted: !!data.config.muted,
       ndiName: data.config.ndiName || "",
       fps: data.config.fps || 30,
       audioPreset: data.config.audioPreset || "off",
@@ -131,15 +132,18 @@ async function createManagedWindow(config, { notifyPanel = true } = {}) {
       contextIsolation: false,
       nodeIntegration: false,
       backgroundThrottling: false,
-      additionalArguments:
-        normalized.transparent || normalized.frameless
-          ? ["--grandicast-draggable"]
-          : [],
+      // Run the preload in iframes too (e.g. an embedded YouTube player) so
+      // frameless windows can be dragged from anywhere on the page
+      nodeIntegrationInSubFrames: true,
+      // HTML fullscreen fills the window instead of going OS-fullscreen, so
+      // the window stays movable
+      disableHtmlFullscreenWindowResize: true,
     },
     title: normalized.title || `Grandicast - Window ${id}`,
   });
 
   win.setContentSize(normalized.width, normalized.height);
+  win.webContents.setAudioMuted(normalized.muted);
 
   win.loadURL(normalized.url).catch((err) => {
     console.error(`Failed to load URL ${normalized.url}:`, err.message);
@@ -164,6 +168,7 @@ async function createManagedWindow(config, { notifyPanel = true } = {}) {
       transparent: normalized.transparent,
       frameless: normalized.frameless,
       hidden: normalized.hidden,
+      muted: normalized.muted,
       title: normalized.title || `Grandicast - Window ${id}`,
       ndiName: normalized.ndi.name,
       fps: normalized.ndi.fps,
@@ -301,6 +306,7 @@ function windowSummary(id) {
     transparent: !!data.config.transparent,
     frameless: !!data.config.frameless,
     hidden: !!data.config.hidden,
+    muted: !!data.config.muted,
     title: data.config.title,
     ndiActive: !!data.ndiActive,
     ndiName: data.config.ndiName || `Grandicast-${id}`,
@@ -396,6 +402,11 @@ async function updateManagedWindow(id, patch, { notifyPanel = true } = {}) {
       data.config.audioPreset = patch.audioPreset;
       if (data.ndiActive) restartNdi = true;
     }
+  }
+
+  if (patch.muted !== undefined) {
+    data.config.muted = !!patch.muted;
+    data.win.webContents.setAudioMuted(data.config.muted);
   }
 
   if (restartNdi) {
@@ -574,6 +585,18 @@ ipcMain.on("window-drag-start", (event) => {
 
 ipcMain.on("window-drag-end", (event) => stopDrag(event.sender.id));
 
+// Asked synchronously by the preload in each frame of a managed window
+ipcMain.on("window-is-draggable", (event) => {
+  let draggable = false;
+  for (const [, data] of browserWindows) {
+    if (!data.win.isDestroyed() && data.win.webContents === event.sender) {
+      draggable = !!(data.config.transparent || data.config.frameless);
+      break;
+    }
+  }
+  event.returnValue = draggable;
+});
+
 // ── IPC: Window management ───────────────────────────────────────────────────
 ipcMain.handle("create-window", async (_ev, config) => {
   return createManagedWindow(config, { notifyPanel: false });
@@ -637,6 +660,8 @@ ipcMain.handle("check-ndi", async () => {
     return { available: false, error: e.message };
   }
 });
+
+ipcMain.handle("get-version", async () => app.getVersion());
 
 // ── IPC: BroadcastChannel bridge ─────────────────────────────────────────────
 ipcMain.on("broadcast-channel-message", (event, payload) => {
@@ -787,7 +812,9 @@ function main() {
 
   app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-      callback({ video: request.frame, audio: "loopback" });
+      // Capture this window's own audio (not system loopback), so other apps
+      // aren't mixed in and the window can be muted locally
+      callback({ video: request.frame, audio: request.frame });
     });
 
     try {

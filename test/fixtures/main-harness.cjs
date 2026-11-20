@@ -64,6 +64,7 @@ class FakeWindow extends EventEmitter {
       on: () => {},
       insertCSS: () => {},
       reload: () => {},
+      setAudioMuted: () => {},
       loadURL: () => Promise.resolve(),
       capturePage: async () => ({
         getSize: () => ({ width: 10, height: 10 }),

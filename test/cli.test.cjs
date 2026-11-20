@@ -122,6 +122,7 @@ test("normalizeWindowConfig applies defaults", () => {
     transparent: false,
     frameless: false,
     hidden: false,
+    muted: false,
     title: "",
     ndi: {
       enabled: false,
@@ -130,6 +131,24 @@ test("normalizeWindowConfig applies defaults", () => {
       audio: "off",
     },
   });
+});
+
+test("muted can be set from config and toggled with update", () => {
+  assert.equal(
+    cli.normalizeWindowConfig({ url: "https://example.com", muted: true }).muted,
+    true,
+  );
+
+  const add = cli.buildRequest(
+    cli.parseCli(["add", "--url", "https://example.com", "--muted"]),
+    process.cwd(),
+  );
+  assert.equal(add.window.muted, true);
+
+  const mute = cli.buildRequest(cli.parseCli(["update", "1", "--muted"]));
+  assert.equal(mute.patch.muted, true);
+  const unmute = cli.buildRequest(cli.parseCli(["update", "1", "--no-muted"]));
+  assert.equal(unmute.patch.muted, false);
 });
 
 test("normalizeWindowConfig supports boolean and object ndi config", () => {

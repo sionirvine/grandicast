@@ -46,6 +46,7 @@ const OPTIONS = {
   transparent: { type: "boolean" },
   frameless: { type: "boolean" },
   hidden: { type: "boolean" },
+  muted: { type: "boolean" },
   ndi: { type: "boolean" },
   merge: { type: "boolean" },
   all: { type: "boolean" },
@@ -71,6 +72,7 @@ function parseCli(args) {
     args,
     options: OPTIONS,
     allowPositionals: true,
+    allowNegative: true,
     strict: true,
   });
 
@@ -118,6 +120,8 @@ Options:
   --transparent              Transparent window background
   --frameless                Frameless window
   --hidden                   Hidden window (NDI only)
+  --muted                    Mute the window locally (NDI still gets audio);
+                             --no-muted unmutes with update
   --config <file|->          JSON config file ("-" reads stdin)
   --merge                    With apply, add instead of replacing
   --all                      With stop/close, affect all windows
@@ -146,6 +150,7 @@ JSON config:
         "hidden": false,
         "transparent": false,
         "frameless": false,
+        "muted": false,
         "ndi": {
           "enabled": true,
           "name": "My Source",
@@ -228,6 +233,7 @@ function normalizeWindowConfig(input) {
     transparent: !!src.transparent,
     frameless: !!src.frameless,
     hidden: !!src.hidden,
+    muted: !!src.muted,
     title: text(src.title).trim(),
     ndi: {
       enabled: ndiEnabled,
@@ -290,6 +296,7 @@ function windowFromOptions(options) {
     transparent: !!options.transparent,
     frameless: !!options.frameless,
     hidden: !!options.hidden,
+    muted: !!options.muted,
     title: text(options.title).trim(),
     ndi: undefined,
   };
@@ -341,6 +348,7 @@ function patchFromOptions(options) {
   if (options.audio !== undefined) {
     patch.audioPreset = audioPreset(options.audio, "off");
   }
+  if (options.muted !== undefined) patch.muted = !!options.muted;
   if (Object.keys(patch).length === 0) {
     throw new Error("update requires at least one option");
   }
