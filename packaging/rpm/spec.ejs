@@ -1,6 +1,6 @@
 # Copy of electron-installer-redhat 4.0.0 resources/spec.ejs. The install step
-# copies from the top-level build dir so it works with rpmbuild 4.20 and newer.
-# Remove once electron-userland/electron-installer-redhat PR 347 is released.
+# copies from the top-level BUILD dir so it works with rpmbuild 4.20 and newer.
+# Remove once electron-installer-redhat releases a template that works with 4.20.
 %define _binary_payload w<%= compressionLevel %>.xzdio
 
 %if "%{_host_cpu}" != "%{_target_cpu}"
@@ -27,7 +27,7 @@ print('\n\n\n') }
 
 %>%install
 mkdir -p %{buildroot}/usr/
-cp <%= process.platform === 'darwin' ? '-R' : '-r' %> %{_builddir}/usr/* %{buildroot}/usr/
+cp <%= process.platform === 'darwin' ? '-R' : '-r' %> %{_topdir}/BUILD/usr/* %{buildroot}/usr/
 
 
 %files
