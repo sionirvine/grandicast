@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Grandicast</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #16213e;
+        color: #e0e0e0;
+        border: 1px solid #1f2e4d;
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+      h1 {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #8b93a7;
+      }
+      .fields {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+      }
+      .field {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .field label {
+        font-size: 11px;
+        color: #8b93a7;
+      }
+      .sep {
+        padding-bottom: 10px;
+        color: #8b93a7;
+      }
+      input {
+        -webkit-app-region: no-drag;
+        width: 100%;
+        background: #0f0f1a;
+        border: 1px solid #2a3a5e;
+        border-radius: 6px;
+        color: #e0e0e0;
+        font-size: 14px;
+        padding: 9px 11px;
+        outline: none;
+        user-select: text;
+      }
+      input:focus {
+        border-color: #4ecca3;
+      }
+      input.invalid {
+        border-color: #e94560;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        border: none;
+        border-radius: 6px;
+        padding: 7px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .cancel {
+        background: #24304f;
+        color: #c8cede;
+      }
+      .ok {
+        background: #4ecca3;
+        color: #0f0f1a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title"></h1>
+    <div class="fields" id="fields"></div>
+    <div class="actions">
+      <button class="cancel" id="cancel">Cancel</button>
+      <button class="ok" id="ok"></button>
+    </div>
+    <script>
+      const { config } = window.promptDialog;
+      document.getElementById("title").textContent = config.title || "";
+      document.getElementById("ok").textContent = config.okLabel || "OK";
+
+      // Fields: { name, label?, value?, type?: "text" | "number", min?, max? }
+      // Number fields are shown side by side with "×" between them.
+      const container = document.getElementById("fields");
+      const inputs = [];
+      (config.fields || []).forEach((f, i) => {
+        if (i > 0 && f.type === "number") {
+          const sep = document.createElement("span");
+          sep.className = "sep";
+          sep.textContent = "×";
+          container.appendChild(sep);
+        }
+        const wrap = document.createElement("div");
+        wrap.className = "field";
+        if (f.label) {
+          const label = document.createElement("label");
+          label.textContent = f.label;
+          label.htmlFor = `f-${f.name}`;
+          wrap.appendChild(label);
+        }
+        const input = document.createElement("input");
+        input.id = `f-${f.name}`;
+        input.type = f.type === "number" ? "number" : "text";
+        input.spellcheck = false;
+        if (f.min !== undefined) input.min = f.min;
+        if (f.max !== undefined) input.max = f.max;
+        input.value = f.value !== undefined ? String(f.value) : "";
+        wrap.appendChild(input);
+        container.appendChild(wrap);
+        inputs.push({ field: f, input });
+      });
+      if (inputs[0]) {
+        inputs[0].input.focus();
+        inputs[0].input.select();
+      }
+
+      function collect() {
+        const values = {};
+        let ok = true;
+        for (const { field, input } of inputs) {
+          const raw = input.value.trim();
+          let valid = raw !== "";
+          if (field.type === "number") {
+            const n = Number(raw);
+            valid =
+              valid &&
+              Number.isInteger(n) &&
+              (field.min === undefined || n >= field.min) &&
+              (field.max === undefined || n <= field.max);
+            values[field.name] = n;
+          } else {
+            values[field.name] = raw;
+          }
+          input.classList.toggle("invalid", !valid);
+          ok = ok && valid;
+        }
+        return ok ? values : null;
+      }
+
+      const submit = () => {
+        const values = collect();
+        if (values) window.promptDialog.submit(values);
+      };
+      document.getElementById("ok").addEventListener("click", submit);
+      document
+        .getElementById("cancel")
+        .addEventListener("click", () => window.promptDialog.cancel());
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submit();
+        if (e.key === "Escape") window.promptDialog.cancel();
+      });
+    </script>
+  </body>
+</html>

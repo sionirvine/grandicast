@@ -13,7 +13,7 @@ This is a proof-of-concept, was made for personal project, that could bypass OBS
 - 🎥 **Web to NDI Streaming** - Convert any webpage into an NDI source
 - 🎛️ **Control Panel** - Manage multiple browser windows from a single interface
 - 🔊 **Audio Support** - Capture and stream tab audio along with video; mute a window locally or send its sound to a chosen output device
-- 🖱️ **Window Menu** - Right-click any window to start/stop NDI, reload, change its URL, or stop it
+- 🖱️ **Window Menu** - Right-click any window to start/stop NDI, reload, change its URL, resize it, or stop it
 - 🎨 **Transparent Windows** - Support for transparent/frameless windows for overlays
 - ⚙️ **Configurable Settings** - Customize resolution, FPS, and audio parameters per source
 - 💾 **Settings Persistence** - Your window configurations are saved automatically

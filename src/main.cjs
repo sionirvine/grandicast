@@ -644,6 +644,92 @@ function runMenuAction(label, fn) {
     .catch((err) => console.error(`[Menu] ${label} failed:`, getErrorMessage(err)));
 }
 
+// Common sizes offered by the window menu's Resize submenu
+const RESIZE_PRESETS = [
+  {
+    label: "16:9",
+    sizes: [
+      [640, 360],
+      [854, 480],
+      [1280, 720],
+      [1600, 900],
+      [1920, 1080],
+      [2560, 1440],
+      [3840, 2160],
+    ],
+  },
+  {
+    label: "16:10",
+    sizes: [
+      [1280, 800],
+      [1440, 900],
+      [1680, 1050],
+      [1920, 1200],
+      [2560, 1600],
+    ],
+  },
+  {
+    label: "4:3",
+    sizes: [
+      [640, 480],
+      [800, 600],
+      [1024, 768],
+      [1280, 960],
+      [1440, 1080],
+      [1600, 1200],
+    ],
+  },
+];
+const MAX_WINDOW_SIZE = 7680;
+
+function resizeMenu(id, data) {
+  const resize = (width, height) =>
+    runMenuAction("Resize", () => updateManagedWindow(id, { width, height }));
+  const { width: currentWidth, height: currentHeight } = data.config;
+
+  return [
+    ...RESIZE_PRESETS.map((group) => ({
+      label: group.label,
+      submenu: group.sizes.map(([w, h]) => ({
+        label: `${w} × ${h}`,
+        type: "checkbox",
+        checked: w === currentWidth && h === currentHeight,
+        click: () => resize(w, h),
+      })),
+    })),
+    { type: "separator" },
+    {
+      label: `Custom… (now ${currentWidth} × ${currentHeight})`,
+      click: () =>
+        runMenuAction("Resize", async () => {
+          const values = await promptDialog(data.win, {
+            title: "Window size",
+            okLabel: "Resize",
+            fields: [
+              {
+                name: "width",
+                label: "Width",
+                type: "number",
+                value: currentWidth,
+                min: 1,
+                max: MAX_WINDOW_SIZE,
+              },
+              {
+                name: "height",
+                label: "Height",
+                type: "number",
+                value: currentHeight,
+                min: 1,
+                max: MAX_WINDOW_SIZE,
+              },
+            ],
+          });
+          if (values) await updateManagedWindow(id, values);
+        }),
+    },
+  ];
+}
+
 ipcMain.on("window-context-menu", (event) => {
   const found = findWindowBySender(event.sender);
   if (!found) return;
@@ -669,10 +755,15 @@ ipcMain.on("window-context-menu", (event) => {
       label: "Change URL…",
       click: () =>
         runMenuAction("Change URL", async () => {
-          const url = await promptForUrl(data.win, data.config.url);
-          if (url) await updateManagedWindow(id, { url });
+          const values = await promptDialog(data.win, {
+            title: "Change URL",
+            okLabel: "Open",
+            fields: [{ name: "url", value: data.config.url }],
+          });
+          if (values) await updateManagedWindow(id, { url: values.url });
         }),
     },
+    { label: "Resize", submenu: resizeMenu(id, data) },
     { type: "separator" },
     {
       label: "Stop window",
@@ -683,10 +774,11 @@ ipcMain.on("window-context-menu", (event) => {
 });
 
 /**
- * Shows a small modal dialog over `parentWin` asking for a URL.
- * Resolves to the entered URL, or null when cancelled.
+ * Shows a small modal dialog over `parentWin` with the given text/number
+ * fields (see prompt-dialog.html). Resolves to { [name]: value } for the
+ * fields, or null when cancelled.
  */
-function promptForUrl(parentWin, currentUrl) {
+function promptDialog(parentWin, config) {
   return new Promise((resolve) => {
     const prompt = new BrowserWindow({
       parent: parentWin,
@@ -703,32 +795,33 @@ function promptForUrl(parentWin, currentUrl) {
         preload: path.join(__dirname, "preload-prompt.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
+        // Encoded so no argument looks like a URL to Electron's argv check
         additionalArguments: [
-          `--grandicast-initial-url=${encodeURIComponent(currentUrl || "")}`,
+          `--grandicast-prompt=${encodeURIComponent(JSON.stringify(config))}`,
         ],
       },
     });
 
     let result = null;
-    const onSubmit = (ev, url) => {
+    const onSubmit = (ev, values) => {
       if (ev.sender !== prompt.webContents) return;
-      result = String(url || "").trim() || null;
+      result = values && typeof values === "object" ? values : null;
       prompt.close();
     };
     const onCancel = (ev) => {
       if (ev.sender === prompt.webContents) prompt.close();
     };
-    ipcMain.on("url-prompt-submit", onSubmit);
-    ipcMain.on("url-prompt-cancel", onCancel);
+    ipcMain.on("prompt-dialog-submit", onSubmit);
+    ipcMain.on("prompt-dialog-cancel", onCancel);
 
     prompt.once("closed", () => {
-      ipcMain.off("url-prompt-submit", onSubmit);
-      ipcMain.off("url-prompt-cancel", onCancel);
+      ipcMain.off("prompt-dialog-submit", onSubmit);
+      ipcMain.off("prompt-dialog-cancel", onCancel);
       resolve(result);
     });
 
     prompt.setMenuBarVisibility(false);
-    prompt.loadFile(path.join(__dirname, "url-prompt.html"));
+    prompt.loadFile(path.join(__dirname, "prompt-dialog.html"));
     prompt.once("ready-to-show", () => prompt.show());
   });
 }

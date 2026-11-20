@@ -1,18 +1,24 @@
 "use strict";
 
 /**
- * Preload for the "Change URL" dialog opened from a window's right-click menu.
+ * Preload for the small dialogs opened from a window's right-click menu
+ * (Change URL, custom size). The main process passes the dialog's title and
+ * fields as an encoded JSON argument.
  */
 
 const { contextBridge, ipcRenderer } = require("electron");
 
-const arg = process.argv.find((a) => a.startsWith("--grandicast-initial-url="));
-const initialUrl = arg
-  ? decodeURIComponent(arg.slice("--grandicast-initial-url=".length))
-  : "";
+const PREFIX = "--grandicast-prompt=";
+const arg = process.argv.find((a) => a.startsWith(PREFIX));
+let config = { title: "", fields: [] };
+try {
+  if (arg) config = JSON.parse(decodeURIComponent(arg.slice(PREFIX.length)));
+} catch {
+  // keep the empty dialog
+}
 
-contextBridge.exposeInMainWorld("urlPrompt", {
-  initialUrl,
-  submit: (url) => ipcRenderer.send("url-prompt-submit", String(url)),
-  cancel: () => ipcRenderer.send("url-prompt-cancel"),
+contextBridge.exposeInMainWorld("promptDialog", {
+  config,
+  submit: (values) => ipcRenderer.send("prompt-dialog-submit", values),
+  cancel: () => ipcRenderer.send("prompt-dialog-cancel"),
 });
