@@ -99,6 +99,7 @@ test("normalizeWindowConfig applies defaults", () => {
     frameless: false,
     hidden: false,
     muted: false,
+    audioOutput: "",
     title: "",
     ndi: {
       enabled: false,
@@ -125,6 +126,33 @@ test("muted can be set from config and toggled with update", () => {
   assert.equal(mute.patch.muted, true);
   const unmute = cli.buildRequest(cli.parseCli(["update", "1", "--no-muted"]));
   assert.equal(unmute.patch.muted, false);
+});
+
+test("audioOutput can be set from config, add, and update", () => {
+  assert.equal(
+    cli.normalizeWindowConfig({
+      url: "https://example.com",
+      audioOutput: " Speakers (USB) ",
+    }).audioOutput,
+    "Speakers (USB)",
+  );
+
+  const add = cli.buildRequest(
+    cli.parseCli([
+      "add",
+      "--url",
+      "https://example.com",
+      "--audio-output",
+      "Headphones",
+    ]),
+    process.cwd(),
+  );
+  assert.equal(add.window.audioOutput, "Headphones");
+
+  const update = cli.buildRequest(
+    cli.parseCli(["update", "1", "--audio-output", ""]),
+  );
+  assert.equal(update.patch.audioOutput, "");
 });
 
 test("normalizeWindowConfig supports boolean and object ndi config", () => {

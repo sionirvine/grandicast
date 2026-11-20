@@ -87,6 +87,7 @@ Useful add flags:
 - `--hidden` keeps the window off-screen while still streaming it.
 - `--transparent` and `--frameless` change the window appearance.
 - `--muted` silences the window locally while NDI still receives its audio. Use `update <id> --no-muted` to unmute.
+- `--audio-output "<device name>"` plays the window's sound on that output device (the name as the OS lists it). `--audio-output ""` goes back to the system default.
 - `--audio off|low|balanced|high|max` selects the audio buffer preset. `off` disables audio; `balanced` is the default when NDI audio is enabled.
 
 Without `--ndi`, `add` creates the window but does not stream until `start` is called.

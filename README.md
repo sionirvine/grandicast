@@ -12,7 +12,8 @@ This is a proof-of-concept, was made for personal project, that could bypass OBS
 
 - 🎥 **Web to NDI Streaming** - Convert any webpage into an NDI source
 - 🎛️ **Control Panel** - Manage multiple browser windows from a single interface
-- 🔊 **Audio Support** - Capture and stream tab audio along with video
+- 🔊 **Audio Support** - Capture and stream tab audio along with video; mute a window locally or send its sound to a chosen output device
+- 🖱️ **Window Menu** - Right-click any window to start/stop NDI, reload, change its URL, or stop it
 - 🎨 **Transparent Windows** - Support for transparent/frameless windows for overlays
 - ⚙️ **Configurable Settings** - Customize resolution, FPS, and audio parameters per source
 - 💾 **Settings Persistence** - Your window configurations are saved automatically
@@ -129,7 +130,8 @@ of the packaged `grandicast` binary.
 ```
 
 A bare array of window objects is also accepted. Supported per-window fields:
-`url`, `width`, `height`, `transparent`, `frameless`, `hidden`, `muted`, `title`, and
+`url`, `width`, `height`, `transparent`, `frameless`, `hidden`, `muted`,
+`audioOutput` (an output device name as the OS lists it), `title`, and
 `ndi` (`true`/`false` or an object with `enabled`, `name`, `fps`, `audio`).
 `apply` replaces the current set of windows; pass `--merge` to keep existing
 windows. Launching with `--config` starts headless unless `--panel` is also

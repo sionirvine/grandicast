@@ -1,6 +1,13 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, session, screen } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  session,
+  screen,
+} = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
@@ -52,6 +59,14 @@ function createControlPanel() {
     height: 760,
     minWidth: 640,
     minHeight: 400,
+    // No OS title bar: the header is the drag area and the OS draws its own
+    // window buttons over it (traffic lights on macOS)
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#16213e",
+      symbolColor: "#e0e0e0",
+      height: 52,
+    },
     webPreferences: {
       preload: path.join(__dirname, "preload-control.cjs"),
       contextIsolation: true,
@@ -107,6 +122,7 @@ function panelPayload(id) {
       frameless: !!data.config.frameless,
       hidden: !!data.config.hidden,
       muted: !!data.config.muted,
+      audioOutput: data.config.audioOutput || "",
       ndiName: data.config.ndiName || "",
       fps: data.config.fps || 30,
       audioPreset: data.config.audioPreset || "off",
@@ -169,6 +185,7 @@ async function createManagedWindow(config, { notifyPanel = true } = {}) {
       frameless: normalized.frameless,
       hidden: normalized.hidden,
       muted: normalized.muted,
+      audioOutput: normalized.audioOutput,
       title: normalized.title || `Grandicast - Window ${id}`,
       ndiName: normalized.ndi.name,
       fps: normalized.ndi.fps,
@@ -307,6 +324,7 @@ function windowSummary(id) {
     frameless: !!data.config.frameless,
     hidden: !!data.config.hidden,
     muted: !!data.config.muted,
+    audioOutput: data.config.audioOutput || "",
     title: data.config.title,
     ndiActive: !!data.ndiActive,
     ndiName: data.config.ndiName || `Grandicast-${id}`,
@@ -407,6 +425,18 @@ async function updateManagedWindow(id, patch, { notifyPanel = true } = {}) {
   if (patch.muted !== undefined) {
     data.config.muted = !!patch.muted;
     data.win.webContents.setAudioMuted(data.config.muted);
+  }
+
+  if (patch.audioOutput !== undefined) {
+    data.config.audioOutput = String(patch.audioOutput).trim();
+    // webContents.send only reaches the top frame; players often live in iframes
+    for (const frame of data.win.webContents.mainFrame.framesInSubtree) {
+      try {
+        frame.send("set-audio-output", data.config.audioOutput);
+      } catch {
+        // frame went away mid-loop
+      }
+    }
   }
 
   if (restartNdi) {
@@ -585,17 +615,123 @@ ipcMain.on("window-drag-start", (event) => {
 
 ipcMain.on("window-drag-end", (event) => stopDrag(event.sender.id));
 
-// Asked synchronously by the preload in each frame of a managed window
-ipcMain.on("window-is-draggable", (event) => {
-  let draggable = false;
-  for (const [, data] of browserWindows) {
-    if (!data.win.isDestroyed() && data.win.webContents === event.sender) {
-      draggable = !!(data.config.transparent || data.config.frameless);
-      break;
+/** Finds the managed window (and its id) whose webContents sent an IPC message. */
+function findWindowBySender(sender) {
+  for (const [id, data] of browserWindows) {
+    if (!data.win.isDestroyed() && data.win.webContents === sender) {
+      return { id, data };
     }
   }
-  event.returnValue = draggable;
+  return null;
+}
+
+// Asked synchronously by the preload in each frame of a managed window
+ipcMain.on("window-frame-config", (event) => {
+  const found = findWindowBySender(event.sender);
+  event.returnValue = found
+    ? {
+        managed: true,
+        draggable: !!(found.data.config.transparent || found.data.config.frameless),
+        audioOutput: found.data.config.audioOutput || "",
+      }
+    : { managed: false, draggable: false, audioOutput: "" };
 });
+
+// ── IPC: Right-click menu on managed windows ─────────────────────────────────
+function runMenuAction(label, fn) {
+  Promise.resolve()
+    .then(fn)
+    .catch((err) => console.error(`[Menu] ${label} failed:`, getErrorMessage(err)));
+}
+
+ipcMain.on("window-context-menu", (event) => {
+  const found = findWindowBySender(event.sender);
+  if (!found) return;
+  const { id, data } = found;
+
+  const menu = Menu.buildFromTemplate([
+    data.ndiActive
+      ? {
+          label: "Stop NDI",
+          click: () => runMenuAction("Stop NDI", () => stopManagedNdi(id)),
+        }
+      : {
+          label: "Start NDI",
+          click: () => runMenuAction("Start NDI", () => startManagedNdi(id)),
+        },
+    {
+      label: "Reload",
+      click: () => {
+        if (!data.win.isDestroyed()) data.win.webContents.reload();
+      },
+    },
+    {
+      label: "Change URL…",
+      click: () =>
+        runMenuAction("Change URL", async () => {
+          const url = await promptForUrl(data.win, data.config.url);
+          if (url) await updateManagedWindow(id, { url });
+        }),
+    },
+    { type: "separator" },
+    {
+      label: "Stop window",
+      click: () => runMenuAction("Stop window", () => closeManagedWindow(id)),
+    },
+  ]);
+  menu.popup({ window: data.win });
+});
+
+/**
+ * Shows a small modal dialog over `parentWin` asking for a URL.
+ * Resolves to the entered URL, or null when cancelled.
+ */
+function promptForUrl(parentWin, currentUrl) {
+  return new Promise((resolve) => {
+    const prompt = new BrowserWindow({
+      parent: parentWin,
+      modal: true,
+      width: 520,
+      height: 150,
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      show: false,
+      backgroundColor: "#16213e",
+      webPreferences: {
+        preload: path.join(__dirname, "preload-prompt.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        additionalArguments: [
+          `--grandicast-initial-url=${encodeURIComponent(currentUrl || "")}`,
+        ],
+      },
+    });
+
+    let result = null;
+    const onSubmit = (ev, url) => {
+      if (ev.sender !== prompt.webContents) return;
+      result = String(url || "").trim() || null;
+      prompt.close();
+    };
+    const onCancel = (ev) => {
+      if (ev.sender === prompt.webContents) prompt.close();
+    };
+    ipcMain.on("url-prompt-submit", onSubmit);
+    ipcMain.on("url-prompt-cancel", onCancel);
+
+    prompt.once("closed", () => {
+      ipcMain.off("url-prompt-submit", onSubmit);
+      ipcMain.off("url-prompt-cancel", onCancel);
+      resolve(result);
+    });
+
+    prompt.setMenuBarVisibility(false);
+    prompt.loadFile(path.join(__dirname, "url-prompt.html"));
+    prompt.once("ready-to-show", () => prompt.show());
+  });
+}
 
 // ── IPC: Window management ───────────────────────────────────────────────────
 ipcMain.handle("create-window", async (_ev, config) => {
