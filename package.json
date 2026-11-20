@@ -49,7 +49,9 @@
         },
         {
           "name": "@electron-forge/maker-rpm",
-          "config": {}
+          "config": {
+            "specTemplate": "packaging/rpm/spec.ejs"
+          }
         }
       ],
       "outDir": "build"
