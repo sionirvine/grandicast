@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain, session, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
 const NdiManager = require("./ndi-manager.cjs");
 const cli = require("./cli.cjs");
 
@@ -662,8 +663,53 @@ function getErrorMessage(err) {
   return err && err.message ? err.message : String(err);
 }
 
+// The Squirrel installer runs the app with --squirrel-install / -updated /
+// -uninstall / -obsolete and expects it to manage its shortcuts and quit.
+// Returns true when the app should exit without starting.
+function handleSquirrelEvent() {
+  if (process.platform !== "win32" || !app.isPackaged) return false;
+  const event = process.argv[1];
+  if (!event || !event.startsWith("--squirrel-")) return false;
+
+  const updateExe = path.resolve(
+    path.dirname(process.execPath),
+    "..",
+    "Update.exe",
+  );
+  const exeName = path.basename(process.execPath);
+  const runUpdate = (args) => {
+    try {
+      spawn(updateExe, args, { detached: true })
+        .on("error", () => app.quit())
+        .on("close", () => app.quit());
+    } catch {
+      app.quit();
+    }
+  };
+
+  switch (event) {
+    case "--squirrel-install":
+    case "--squirrel-updated":
+      runUpdate(["--createShortcut", exeName]);
+      return true;
+    case "--squirrel-uninstall":
+      runUpdate(["--removeShortcut", exeName]);
+      return true;
+    case "--squirrel-obsolete":
+      app.quit();
+      return true;
+    default:
+      // --squirrel-firstrun: start normally
+      return false;
+  }
+}
+
 function main() {
-  const args = cli.getArgv(process.argv, app.isPackaged);
+  if (handleSquirrelEvent()) return;
+
+  const args = cli
+    .getArgv(process.argv, app.isPackaged)
+    .filter((arg) => arg !== "--squirrel-firstrun");
 
   let parsed;
   try {
