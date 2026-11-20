@@ -1,6 +1,13 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, session, screen } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  session,
+  screen,
+} = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
@@ -52,6 +59,14 @@ function createControlPanel() {
     height: 760,
     minWidth: 640,
     minHeight: 400,
+    // No OS title bar: the header is the drag area and the OS draws its own
+    // window buttons over it (traffic lights on macOS)
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#16213e",
+      symbolColor: "#e0e0e0",
+      height: 52,
+    },
     webPreferences: {
       preload: path.join(__dirname, "preload-control.cjs"),
       contextIsolation: true,
@@ -107,6 +122,7 @@ function panelPayload(id) {
       frameless: !!data.config.frameless,
       hidden: !!data.config.hidden,
       muted: !!data.config.muted,
+      audioOutput: data.config.audioOutput || "",
       ndiName: data.config.ndiName || "",
       fps: data.config.fps || 30,
       audioPreset: data.config.audioPreset || "off",
@@ -169,6 +185,7 @@ async function createManagedWindow(config, { notifyPanel = true } = {}) {
       frameless: normalized.frameless,
       hidden: normalized.hidden,
       muted: normalized.muted,
+      audioOutput: normalized.audioOutput,
       title: normalized.title || `Grandicast - Window ${id}`,
       ndiName: normalized.ndi.name,
       fps: normalized.ndi.fps,
@@ -307,6 +324,7 @@ function windowSummary(id) {
     frameless: !!data.config.frameless,
     hidden: !!data.config.hidden,
     muted: !!data.config.muted,
+    audioOutput: data.config.audioOutput || "",
     title: data.config.title,
     ndiActive: !!data.ndiActive,
     ndiName: data.config.ndiName || `Grandicast-${id}`,
@@ -407,6 +425,18 @@ async function updateManagedWindow(id, patch, { notifyPanel = true } = {}) {
   if (patch.muted !== undefined) {
     data.config.muted = !!patch.muted;
     data.win.webContents.setAudioMuted(data.config.muted);
+  }
+
+  if (patch.audioOutput !== undefined) {
+    data.config.audioOutput = String(patch.audioOutput).trim();
+    // webContents.send only reaches the top frame; players often live in iframes
+    for (const frame of data.win.webContents.mainFrame.framesInSubtree) {
+      try {
+        frame.send("set-audio-output", data.config.audioOutput);
+      } catch {
+        // frame went away mid-loop
+      }
+    }
   }
 
   if (restartNdi) {
@@ -585,17 +615,250 @@ ipcMain.on("window-drag-start", (event) => {
 
 ipcMain.on("window-drag-end", (event) => stopDrag(event.sender.id));
 
-// Asked synchronously by the preload in each frame of a managed window
-ipcMain.on("window-is-draggable", (event) => {
-  let draggable = false;
-  for (const [, data] of browserWindows) {
-    if (!data.win.isDestroyed() && data.win.webContents === event.sender) {
-      draggable = !!(data.config.transparent || data.config.frameless);
-      break;
+/** Finds the managed window (and its id) whose webContents sent an IPC message. */
+function findWindowBySender(sender) {
+  for (const [id, data] of browserWindows) {
+    if (!data.win.isDestroyed() && data.win.webContents === sender) {
+      return { id, data };
     }
   }
-  event.returnValue = draggable;
+  return null;
+}
+
+// Asked synchronously by the preload in each frame of a managed window
+ipcMain.on("window-frame-config", (event) => {
+  const found = findWindowBySender(event.sender);
+  event.returnValue = found
+    ? {
+        managed: true,
+        draggable: !!(found.data.config.transparent || found.data.config.frameless),
+        audioOutput: found.data.config.audioOutput || "",
+      }
+    : { managed: false, draggable: false, audioOutput: "" };
 });
+
+// ── IPC: Right-click menu on managed windows ─────────────────────────────────
+function runMenuAction(label, fn) {
+  Promise.resolve()
+    .then(fn)
+    .catch((err) => console.error(`[Menu] ${label} failed:`, getErrorMessage(err)));
+}
+
+// Common sizes offered by the window menu's Resize submenu
+const RESIZE_PRESETS = [
+  {
+    label: "16:9",
+    sizes: [
+      [640, 360],
+      [854, 480],
+      [1280, 720],
+      [1600, 900],
+      [1920, 1080],
+      [2560, 1440],
+      [3840, 2160],
+    ],
+  },
+  {
+    label: "16:10",
+    sizes: [
+      [1280, 800],
+      [1440, 900],
+      [1680, 1050],
+      [1920, 1200],
+      [2560, 1600],
+    ],
+  },
+  {
+    label: "4:3",
+    sizes: [
+      [640, 480],
+      [800, 600],
+      [1024, 768],
+      [1280, 960],
+      [1440, 1080],
+      [1600, 1200],
+    ],
+  },
+];
+const MAX_WINDOW_SIZE = 7680;
+
+function resizeMenu(id, data) {
+  const resize = (width, height) =>
+    runMenuAction("Resize", () => updateManagedWindow(id, { width, height }));
+  const { width: currentWidth, height: currentHeight } = data.config;
+
+  return [
+    ...RESIZE_PRESETS.map((group) => ({
+      label: group.label,
+      submenu: group.sizes.map(([w, h]) => ({
+        label: `${w} × ${h}`,
+        type: "checkbox",
+        checked: w === currentWidth && h === currentHeight,
+        click: () => resize(w, h),
+      })),
+    })),
+    { type: "separator" },
+    {
+      label: `Custom… (now ${currentWidth} × ${currentHeight})`,
+      click: () =>
+        runMenuAction("Resize", async () => {
+          const values = await promptDialog(data.win, {
+            title: "Window size",
+            okLabel: "Resize",
+            fields: [
+              {
+                name: "width",
+                label: "Width",
+                type: "number",
+                value: currentWidth,
+                min: 1,
+                max: MAX_WINDOW_SIZE,
+              },
+              {
+                name: "height",
+                label: "Height",
+                type: "number",
+                value: currentHeight,
+                min: 1,
+                max: MAX_WINDOW_SIZE,
+              },
+            ],
+          });
+          if (values) await updateManagedWindow(id, values);
+        }),
+    },
+  ];
+}
+
+/**
+ * Audio Output submenu. `outputs` are the device labels the right-clicked frame
+ * could see; "" means the system default.
+ */
+function audioOutputMenu(id, data, outputs) {
+  const current = data.config.audioOutput || "";
+  const choose = (label) =>
+    runMenuAction("Audio Output", () =>
+      updateManagedWindow(id, { audioOutput: label }),
+    );
+  const labels = [...new Set(outputs)];
+  if (current && !labels.includes(current)) labels.push(current);
+
+  return [
+    {
+      label: "System default",
+      type: "radio",
+      checked: current === "",
+      click: () => choose(""),
+    },
+    { type: "separator" },
+    ...labels.map((label) => ({
+      label: outputs.includes(label) ? label : `${label} (not connected)`,
+      type: "radio",
+      checked: label === current,
+      click: () => choose(label),
+    })),
+  ];
+}
+
+ipcMain.on("window-context-menu", (event, payload) => {
+  const found = findWindowBySender(event.sender);
+  if (!found) return;
+  const { id, data } = found;
+  const outputs = Array.isArray(payload && payload.outputs)
+    ? payload.outputs.filter((l) => typeof l === "string" && l)
+    : [];
+
+  const menu = Menu.buildFromTemplate([
+    data.ndiActive
+      ? {
+          label: "Stop NDI",
+          click: () => runMenuAction("Stop NDI", () => stopManagedNdi(id)),
+        }
+      : {
+          label: "Start NDI",
+          click: () => runMenuAction("Start NDI", () => startManagedNdi(id)),
+        },
+    {
+      label: "Reload",
+      click: () => {
+        if (!data.win.isDestroyed()) data.win.webContents.reload();
+      },
+    },
+    {
+      label: "Change URL…",
+      click: () =>
+        runMenuAction("Change URL", async () => {
+          const values = await promptDialog(data.win, {
+            title: "Change URL",
+            okLabel: "Open",
+            fields: [{ name: "url", value: data.config.url }],
+          });
+          if (values) await updateManagedWindow(id, { url: values.url });
+        }),
+    },
+    { label: "Resize", submenu: resizeMenu(id, data) },
+    { label: "Audio Output", submenu: audioOutputMenu(id, data, outputs) },
+    { type: "separator" },
+    {
+      label: "Stop window",
+      click: () => runMenuAction("Stop window", () => closeManagedWindow(id)),
+    },
+  ]);
+  menu.popup({ window: data.win });
+});
+
+/**
+ * Shows a small modal dialog over `parentWin` with the given text/number
+ * fields (see prompt-dialog.html). Resolves to { [name]: value } for the
+ * fields, or null when cancelled.
+ */
+function promptDialog(parentWin, config) {
+  return new Promise((resolve) => {
+    const prompt = new BrowserWindow({
+      parent: parentWin,
+      modal: true,
+      width: 520,
+      height: 150,
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      show: false,
+      backgroundColor: "#16213e",
+      webPreferences: {
+        preload: path.join(__dirname, "preload-prompt.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        // Encoded so no argument looks like a URL to Electron's argv check
+        additionalArguments: [
+          `--grandicast-prompt=${encodeURIComponent(JSON.stringify(config))}`,
+        ],
+      },
+    });
+
+    let result = null;
+    const onSubmit = (ev, values) => {
+      if (ev.sender !== prompt.webContents) return;
+      result = values && typeof values === "object" ? values : null;
+      prompt.close();
+    };
+    const onCancel = (ev) => {
+      if (ev.sender === prompt.webContents) prompt.close();
+    };
+    ipcMain.on("prompt-dialog-submit", onSubmit);
+    ipcMain.on("prompt-dialog-cancel", onCancel);
+
+    prompt.once("closed", () => {
+      ipcMain.off("prompt-dialog-submit", onSubmit);
+      ipcMain.off("prompt-dialog-cancel", onCancel);
+      resolve(result);
+    });
+
+    prompt.setMenuBarVisibility(false);
+    prompt.loadFile(path.join(__dirname, "prompt-dialog.html"));
+    prompt.once("ready-to-show", () => prompt.show());
+  });
+}
 
 // ── IPC: Window management ───────────────────────────────────────────────────
 ipcMain.handle("create-window", async (_ev, config) => {

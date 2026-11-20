@@ -118,10 +118,192 @@ const isTopFrame = window === window.top;
   window.BroadcastChannel = BridgedBroadcastChannel;
 })();
 
+// Per-window settings, asked from every frame since iframes in other processes
+// don't share argv: { managed, draggable, audioOutput }
+const frameConfig = ipcRenderer.sendSync("window-frame-config") || {};
+
+// ── Right-click menu (Start/Stop NDI, Reload, Change URL, Stop window) ──────
+(() => {
+  if (!frameConfig.managed) return;
+
+  // Capture phase on window so it runs before the page, which may cancel the
+  // event (YouTube does) and would otherwise show its own menu instead
+  window.addEventListener(
+    "contextmenu",
+    (e) => {
+      if (!e.isTrusted) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // The main process can't list devices, so send them with the request
+      // for the menu's Audio Output submenu
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then(
+          (devices) =>
+            devices
+              .filter(
+                (d) =>
+                  d.kind === "audiooutput" &&
+                  d.label &&
+                  d.deviceId !== "default" &&
+                  d.deviceId !== "communications",
+              )
+              .map((d) => d.label),
+          () => [],
+        )
+        .then((outputs) => ipcRenderer.send("window-context-menu", { outputs }));
+    },
+    true,
+  );
+})();
+
+// ── Per-window audio output device ───────────────────────────────────────────
+// Chromium picks the output device per media element / AudioContext
+// (setSinkId), so route everything this frame plays. Device ids are hashed per
+// origin, so the window setting is the device's label and each frame looks up
+// its own id for it.
+(() => {
+  if (!frameConfig.managed) return;
+
+  // Cross-origin iframes (e.g. a YouTube embed) can only list and use output
+  // devices when their parent grants "speaker-selection" in the iframe's
+  // allow attribute. Grant it to every iframe this frame creates, before it
+  // navigates; the preload runs before the page's own scripts.
+  const POLICY = "speaker-selection";
+  const withPolicy = (value) => {
+    const v = String(value || "").trim();
+    if (/(^|;)\s*speaker-selection\b/.test(v)) return v;
+    return v ? `${v.replace(/;\s*$/, "")}; ${POLICY}` : POLICY;
+  };
+
+  const originalCreateElement = Document.prototype.createElement;
+  Document.prototype.createElement = function (...args) {
+    const el = originalCreateElement.apply(this, args);
+    if (el instanceof HTMLIFrameElement) {
+      originalSetAttribute.call(el, "allow", POLICY);
+    }
+    return el;
+  };
+
+  const originalSetAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (
+      this instanceof HTMLIFrameElement &&
+      String(name).toLowerCase() === "allow"
+    ) {
+      value = withPolicy(value);
+    }
+    return originalSetAttribute.call(this, name, value);
+  };
+
+  const allowDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLIFrameElement.prototype,
+    "allow",
+  );
+  if (allowDescriptor && allowDescriptor.set) {
+    Object.defineProperty(HTMLIFrameElement.prototype, "allow", {
+      ...allowDescriptor,
+      set(value) {
+        allowDescriptor.set.call(this, withPolicy(value));
+      },
+    });
+  }
+
+  // Iframes written in the page's HTML were created before we could set the
+  // attribute: add it and reload them once so it takes effect.
+  function grantParsedIframe(iframe) {
+    const current = iframe.getAttribute("allow") || "";
+    if (withPolicy(current) === current.trim()) return;
+    originalSetAttribute.call(iframe, "allow", withPolicy(current));
+    const src = iframe.getAttribute("src");
+    if (src && src !== "about:blank") iframe.src = src;
+  }
+  new MutationObserver((records) => {
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (node instanceof HTMLIFrameElement) grantParsedIframe(node);
+        else if (node.querySelectorAll) {
+          node.querySelectorAll("iframe").forEach(grantParsedIframe);
+        }
+      }
+    }
+  }).observe(document, { childList: true, subtree: true });
+
+  let label = frameConfig.audioOutput || "";
+  let sinkId = "";
+  const contexts = new Set();
+
+  async function resolveSink(wanted) {
+    if (!wanted) return "";
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const match = devices.find(
+        (d) => d.kind === "audiooutput" && d.label === wanted,
+      );
+      return match ? match.deviceId : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function applyTo(target) {
+    if (!target || typeof target.setSinkId !== "function") return;
+    if ((target.sinkId || "") === sinkId) return;
+    target.setSinkId(sinkId).catch(() => {});
+  }
+
+  function applyAll() {
+    document.querySelectorAll("audio, video").forEach(applyTo);
+    contexts.forEach(applyTo);
+  }
+
+  async function setOutput(newLabel) {
+    label = newLabel || "";
+    sinkId = await resolveSink(label);
+    applyAll();
+  }
+
+  // Media elements: catch new ones in the page and ones that play without
+  // being attached (new Audio()).
+  const originalPlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...args) {
+    applyTo(this);
+    return originalPlay.apply(this, args);
+  };
+
+  // Web Audio: remember every context so it can be re-routed later
+  const NativeAudioContext = window.AudioContext;
+  if (NativeAudioContext) {
+    window.AudioContext = class extends NativeAudioContext {
+      constructor(...args) {
+        super(...args);
+        contexts.add(this);
+        applyTo(this);
+      }
+    };
+  }
+
+  new MutationObserver((records) => {
+    if (!sinkId) return;
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (node instanceof HTMLMediaElement) applyTo(node);
+        else if (node.querySelectorAll) {
+          node.querySelectorAll("audio, video").forEach(applyTo);
+        }
+      }
+    }
+  }).observe(document, { childList: true, subtree: true });
+
+  ipcRenderer.on("set-audio-output", (_ev, newLabel) => setOutput(newLabel));
+  navigator.mediaDevices.addEventListener("devicechange", () => setOutput(label));
+
+  if (label) setOutput(label);
+})();
+
 // ── Click-and-drag moving for frameless / transparent windows ───────────────
 (() => {
-  // Asked from every frame, since iframes in other processes don't share argv
-  if (!ipcRenderer.sendSync("window-is-draggable")) return;
+  if (!frameConfig.draggable) return;
 
   // Pixels the pointer must travel before a press turns into a window drag,
   // so ordinary clicks on the page still work.

@@ -33,12 +33,21 @@
         top: 0;
         z-index: 100;
         background: #16213e;
-        padding: 12px 24px;
+        /* The window has no OS title bar: the header is the drag area and the
+           OS draws its window buttons over it. The titlebar-area-* insets keep
+           our content clear of them (right on Windows/Linux, left on macOS). */
+        height: env(titlebar-area-height, 52px);
+        padding: 0 24px;
+        padding-left: calc(env(titlebar-area-x, 0px) + 24px);
+        padding-right: calc(
+          100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 24px
+        );
         display: flex;
         align-items: center;
         justify-content: space-between;
         border-bottom: 1px solid #1f2e4d;
         -webkit-app-region: drag;
+        user-select: none;
       }
       header h1 {
         font-size: 18px;
@@ -477,6 +486,9 @@
           if (preset.muted !== undefined) {
             $(`muted-${idle}`).checked = !!preset.muted;
           }
+          if (preset.audioOutput !== undefined) {
+            setOutputValue(idle, preset.audioOutput);
+          }
           if (preset.ndiName !== undefined) {
             $(`ndi-${idle}`).value = preset.ndiName;
           }
@@ -512,6 +524,7 @@
           $(`audio-${pid}`).value = patch.audioPreset;
         }
         if (patch.muted !== undefined) $(`muted-${pid}`).checked = !!patch.muted;
+        if (patch.audioOutput !== undefined) setOutputValue(pid, patch.audioOutput);
         refreshCard(pid);
         persistSettings();
       }
@@ -657,6 +670,12 @@
         </div>
       </div>
 
+      <!-- Audio output device -->
+      <div class="fg">
+        <label>Audio Output</label>
+        <select id="output-${pid}" class="audio-select" data-value="${esc(p.audioOutput || "")}"></select>
+      </div>
+
       <!-- NDI section -->
       <div class="section">NDI Output</div>
 
@@ -728,6 +747,20 @@
         $(`w-${pid}`).addEventListener("input", onSizeChange);
         $(`h-${pid}`).addEventListener("input", onSizeChange);
         $(`url-${pid}`).addEventListener("input", autoSave);
+        // Keep the running window's NDI settings in sync, so starting NDI from
+        // the window's right-click menu uses what the card shows
+        let ndiSyncTimer;
+        const syncNdiSettings = () => {
+          clearTimeout(ndiSyncTimer);
+          ndiSyncTimer = setTimeout(() => {
+            const c = cards.get(pid);
+            if (!c || !c.windowId || c.ndiActive) return;
+            api.updateWindow(c.windowId, ndiSettings(pid));
+          }, 400);
+        };
+        $(`ndi-${pid}`).addEventListener("input", syncNdiSettings);
+        $(`fps-${pid}`).addEventListener("input", syncNdiSettings);
+        $(`audio-${pid}`).addEventListener("change", syncNdiSettings);
         $(`ndi-${pid}`).addEventListener("input", autoSave);
         $(`fps-${pid}`).addEventListener("input", autoSave);
         $(`tp-${pid}`).addEventListener("change", autoSave);
@@ -742,12 +775,78 @@
           }
           autoSave();
         });
+        // Output device also applies live
+        fillOutputSelect($(`output-${pid}`));
+        $(`output-${pid}`).addEventListener("change", () => {
+          const sel = $(`output-${pid}`);
+          sel.dataset.value = sel.value;
+          const c = cards.get(pid);
+          if (c && c.windowId) {
+            api.updateWindow(c.windowId, { audioOutput: sel.value });
+          }
+          autoSave();
+        });
 
         refreshCard(pid);
         toggleEmpty();
       }
 
+      // ── Audio output devices ─────────────────────────────────────────────────────
+      // Windows store the device label (ids differ per site); "" = system default.
+      let outputDevices = [];
+
+      function fillOutputSelect(sel) {
+        const wanted = sel.dataset.value || "";
+        const labels = outputDevices.map((d) => d.label);
+        const options = [`<option value="">System default</option>`];
+        for (const label of labels) {
+          options.push(`<option value="${esc(label)}">${esc(label)}</option>`);
+        }
+        if (wanted && !labels.includes(wanted)) {
+          options.push(
+            `<option value="${esc(wanted)}">${esc(wanted)} (not connected)</option>`,
+          );
+        }
+        sel.innerHTML = options.join("");
+        sel.value = wanted;
+      }
+
+      function setOutputValue(pid, label) {
+        const sel = $(`output-${pid}`);
+        sel.dataset.value = label || "";
+        fillOutputSelect(sel);
+      }
+
+      async function refreshOutputDevices() {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          // Skip the "default"/"communications" aliases; "System default" covers them
+          outputDevices = devices.filter(
+            (d) =>
+              d.kind === "audiooutput" &&
+              d.label &&
+              d.deviceId !== "default" &&
+              d.deviceId !== "communications",
+          );
+        } catch {
+          outputDevices = [];
+        }
+        document.querySelectorAll("select[id^='output-']").forEach(fillOutputSelect);
+      }
+
+      navigator.mediaDevices.addEventListener("devicechange", refreshOutputDevices);
+      refreshOutputDevices();
+
       // ── Actions ──────────────────────────────────────────────────────────────────
+      /** The card's NDI fields, as window config / update-window patch keys. */
+      function ndiSettings(pid) {
+        return {
+          ndiName: $(`ndi-${pid}`).value.trim() || `Grandicast-${pid}`,
+          fps: int($(`fps-${pid}`).value, 30),
+          audioPreset: $(`audio-${pid}`).value,
+        };
+      }
+
       async function startWindow(pid) {
         const c = cards.get(pid);
         if (!c || c.windowId) return;
@@ -774,6 +873,8 @@
             frameless,
             hidden,
             muted,
+            audioOutput: $(`output-${pid}`).value,
+            ...ndiSettings(pid),
             title: `Grandicast – Window ${pid}`,
           });
           c.windowId = wid;
@@ -930,6 +1031,7 @@
               : false,
             hidden: $(`hidden-${pid}`) ? $(`hidden-${pid}`).checked : false,
             muted: $(`muted-${pid}`) ? $(`muted-${pid}`).checked : false,
+            audioOutput: $(`output-${pid}`) ? $(`output-${pid}`).dataset.value : "",
             ndiName: $(`ndi-${pid}`) ? $(`ndi-${pid}`).value : "",
             fps: int($(`fps-${pid}`) ? $(`fps-${pid}`).value : 30, 30),
             audioPreset: $(`audio-${pid}`) ? $(`audio-${pid}`).value : "off",
@@ -972,6 +1074,7 @@
                   frameless: w.frameless,
                   hidden: w.hidden,
                   muted: w.muted,
+                  audioOutput: w.audioOutput,
                   ndiName: w.ndiName,
                   fps: w.fps,
                   audioPreset: w.audioPreset,

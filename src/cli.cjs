@@ -42,6 +42,7 @@ const OPTIONS = {
   title: { type: "string" },
   fps: { type: "string" },
   audio: { type: "string" },
+  "audio-output": { type: "string" },
   config: { type: "string" },
   transparent: { type: "boolean" },
   frameless: { type: "boolean" },
@@ -122,6 +123,8 @@ Options:
   --hidden                   Hidden window (NDI only)
   --muted                    Mute the window locally (NDI still gets audio);
                              --no-muted unmutes with update
+  --audio-output <device>    Play the window's sound on this output device
+                             (its name as the OS lists it; "" = default)
   --config <file|->          JSON config file ("-" reads stdin)
   --merge                    With apply, add instead of replacing
   --all                      With stop/close, affect all windows
@@ -151,6 +154,7 @@ JSON config:
         "transparent": false,
         "frameless": false,
         "muted": false,
+        "audioOutput": "",
         "ndi": {
           "enabled": true,
           "name": "My Source",
@@ -234,6 +238,7 @@ function normalizeWindowConfig(input) {
     frameless: !!src.frameless,
     hidden: !!src.hidden,
     muted: !!src.muted,
+    audioOutput: text(src.audioOutput).trim(),
     title: text(src.title).trim(),
     ndi: {
       enabled: ndiEnabled,
@@ -297,6 +302,7 @@ function windowFromOptions(options) {
     frameless: !!options.frameless,
     hidden: !!options.hidden,
     muted: !!options.muted,
+    audioOutput: text(options["audio-output"]).trim(),
     title: text(options.title).trim(),
     ndi: undefined,
   };
@@ -349,6 +355,9 @@ function patchFromOptions(options) {
     patch.audioPreset = audioPreset(options.audio, "off");
   }
   if (options.muted !== undefined) patch.muted = !!options.muted;
+  if (options["audio-output"] !== undefined) {
+    patch.audioOutput = text(options["audio-output"]).trim();
+  }
   if (Object.keys(patch).length === 0) {
     throw new Error("update requires at least one option");
   }
